@@ -1426,7 +1426,7 @@ function bindEvents(){
             model: 'gemini-3.6-flash'
           };
 
-          const { error: profErr } = await S.supabaseClient.from('profiles').insert(newProfile);
+const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newProfile);
           if(profErr) throw profErr;
 
           S.profile = {
