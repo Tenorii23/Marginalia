@@ -287,6 +287,15 @@
   .stats-chart-block h4{ font-family:var(--font-serif); font-size:14.5px; margin-bottom: var(--sp-3); }
   .stats-chart-wrap{ position:relative; height:260px; }
   .stats-empty{ padding: var(--sp-6); text-align:center; color:var(--ink-faint); border:1px dashed var(--rule-strong); }
+
+  /* ── Quiz/Test setup panels ── */
+  .setup-panel{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-5); margin-bottom: var(--sp-5); }
+  .setup-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
+  .type-check-row{ display:flex; flex-direction:column; gap: var(--sp-2); }
+  .type-check-row label{ display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer; }
+  .timer-pin{ display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:14px; border:1px solid var(--rule-strong); padding: 4px 10px; }
+  .timer-pin.timer-warn{ border-color:var(--oxblood); color:var(--oxblood); }
+  .quiz-progress-label .timer-pin{ margin-left:auto; }
 </style>
 </head>
 <body>
@@ -440,6 +449,8 @@ async function loadAll(){
           title: s.title,
           notesSummary: s.notes_summary,
           category: s.category || 'General',
+          quizSettings: s.quiz_settings || null,
+          testSettings: s.test_settings || null,
           createdAt: new Date(s.created_at).getTime(),
           updatedAt: new Date(s.updated_at).getTime(),
           stickyNotes: snRes.data || [],
@@ -770,6 +781,13 @@ const TYPE_LABELS = {
   fill_blank: 'Fill in the blank',
 };
 
+function levelInstruction(level){
+  if(level === 'college'){
+    return 'The student is at COLLEGE level. Use precise academic vocabulary, expect nuanced/analytical thinking, and do not oversimplify — write as you would for an undergraduate course.';
+  }
+  return 'The student is at HIGH SCHOOL level. Use clear, accessible vocabulary and more straightforward sentence structure — avoid unnecessarily advanced academic jargon, but do not dumb down the actual concepts.';
+}
+
 function getTargetLang(){
   const lang = S.profile?.language;
   if(!lang || lang === 'english') return 'English';
@@ -789,6 +807,7 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
   }
   const prompt = [
     'You are building study materials for a ' + (level==='college'?'college':'high school') + ' student.',
+    levelInstruction(level),
     'Topic / set title: ' + title,
     difficultyNote ? 'Adaptive difficulty instruction: ' + difficultyNote : '',
     '',
@@ -844,10 +863,11 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
   return result;
 }
 
-async function gradeShortAnswers(items){
+async function gradeShortAnswers(items, level){
   const targetLang = getTargetLang();
   const prompt = [
     'You are an expert, fair teacher grading student quiz answers in ' + targetLang + '.',
+    levelInstruction(level || 'high school'),
     'Grade each student answer below against the expected answer with full flexibility and free will. Account for language differences, true/false translations (e.g., matching English "True" or "False" to Albanian "E vërtetë" or "E rreme"/"E gabuar"), synonyms, spelling, case, and word order; the student does not need to match the expected answer word for word, only demonstrate correct substance and conceptual understanding.',
     'Return a JSON array, same length and order as the input, where each element is:',
     '{ "correct": boolean, "feedback": string }',
@@ -871,6 +891,7 @@ async function generateQuizOnly({ title, notesSummary, level, count, types, rece
   }
   const prompt = [
     'Write a fresh practice quiz for a ' + (level==='college'?'college':'high school') + ' student on "' + title + '", based only on this notes summary:',
+    levelInstruction(level),
     '',
     notesSummary,
     '',
@@ -886,34 +907,141 @@ async function generateQuizOnly({ title, notesSummary, level, count, types, rece
   return res.quiz;
 }
 
-async function generateTest({ title, notesSummary, level, count }){
+async function generateMoreStickyNotes({ title, notesSummary, level, existingTitles, count }){
   const targetLang = getTargetLang();
   const prompt = [
+    'Write ' + count + ' NEW revision flashcards for a ' + (level==='college'?'college':'high school') + ' student studying "' + title + '", based only on this notes summary:',
+    levelInstruction(level),
+    '',
+    notesSummary,
+    '',
+    'Do NOT repeat these concepts, which already have cards: ' + JSON.stringify(existingTitles),
+    'Cover different concepts, details, or angles from the same material.',
+    'IMPORTANT: All text MUST be entirely in ' + targetLang + '.',
+    'Produce a JSON object: { "stickyNotes": [ { "title": string, "body": string } ] }, exactly ' + count + ' cards, title is a concept name, body is 1-3 sentences for an index card.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  const res = await callGemini([{ text: prompt }]);
+  return res.stickyNotes;
+}
+
+// ── Timer helpers (shared by quiz + formal test) ──
+function recommendTimerMinutes(count){
+  return Math.max(5, Math.round((count + 5) / 5) * 5);
+}
+function formatTimer(totalSeconds){
+  const s = Math.max(0, totalSeconds);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m + ':' + String(sec).padStart(2,'0');
+}
+let activeTimerInterval = null;
+function clearActiveTimer(){
+  if(activeTimerInterval){ clearInterval(activeTimerInterval); activeTimerInterval = null; }
+}
+function startSessionTimer(session, onExpire){
+  clearActiveTimer();
+  if(!session || !session.timerTotalSeconds) return;
+  if(session.timerRemaining == null) session.timerRemaining = session.timerTotalSeconds;
+  activeTimerInterval = setInterval(() => {
+    session.timerRemaining--;
+    const el = document.getElementById('timer-display');
+    if(el){
+      el.textContent = formatTimer(session.timerRemaining);
+      el.classList.toggle('timer-warn', session.timerRemaining <= 60);
+    }
+    if(session.timerRemaining <= 0){
+      clearActiveTimer();
+      onExpire();
+    }
+  }, 1000);
+}
+
+function renderTimerSetting(idPrefix, recommendedMinutes, currentMode, currentCustom){
+  const mode = currentMode || 'none';
+  return (
+    '<div class="field">' +
+      '<label class="field-label">Timer</label>' +
+      '<select id="' + idPrefix + '-timer-mode">' +
+        '<option value="none" ' + (mode==='none'?'selected':'') + '>No timer</option>' +
+        '<option value="recommended" ' + (mode==='recommended'?'selected':'') + '>Recommended (' + recommendedMinutes + ' min)</option>' +
+        '<option value="custom" ' + (mode==='custom'?'selected':'') + '>Custom</option>' +
+      '</select>' +
+      '<input type="number" id="' + idPrefix + '-timer-custom" min="1" max="240" value="' + (currentCustom || recommendedMinutes) + '" placeholder="Minutes" style="margin-top:8px; display:' + (mode==='custom'?'block':'none') + '; width:120px;" />' +
+    '</div>'
+  );
+}
+function resolveTimerMinutes(idPrefix, recommendedMinutes){
+  const mode = document.getElementById(idPrefix + '-timer-mode').value;
+  if(mode === 'none') return null;
+  if(mode === 'recommended') return recommendedMinutes;
+  const custom = parseInt(document.getElementById(idPrefix + '-timer-custom').value);
+  return (custom && custom > 0) ? custom : recommendedMinutes;
+}
+
+async function persistSetSettings(set, patch){
+  Object.assign(set, patch);
+  if(!S.supabaseClient) return;
+  const { data: { session } } = await S.supabaseClient.auth.getSession();
+  if(!session) return;
+  const dbPatch = {};
+  if('quizSettings' in patch) dbPatch.quiz_settings = patch.quizSettings;
+  if('testSettings' in patch) dbPatch.test_settings = patch.testSettings;
+  if(Object.keys(dbPatch).length){
+    await S.supabaseClient.from('study_sets').update(dbPatch).eq('id', set.id);
+  }
+}
+
+async function generateTest({ title, notesSummary, level, count, leniency, persona }){
+  const targetLang = getTargetLang();
+  const leniencyNote = {
+    strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
+    standard: 'Grading will be STANDARD — write rubrics that reward solid understanding without demanding perfect wording.',
+    lenient: 'Grading will be LENIENT — write rubrics focused on core understanding, forgiving of minor gaps or imprecision.'
+  }[leniency || 'standard'];
+  const personaNote = persona && persona.trim() ? ('Write questions in the voice/spirit of this examiner persona: "' + persona.trim() + '".') : '';
+  const prompt = [
     'Write a formal test for a ' + (level==='college'?'college':'high school') + ' student, based only on the following study material summary for "' + title + '":',
+    levelInstruction(level),
+    leniencyNote,
+    personaNote,
     '',
     notesSummary,
     '',
     'IMPORTANT: Write all test questions, rubrics, and related text entirely in ' + targetLang + '.',
     'Produce a JSON object: { "questions": [ { "type": "short_answer" or "essay", "question": string, "rubric": string, "points": number } ] }.',
-    'Write ' + count + ' questions total. Mostly short_answer (a sentence or two expected), include 1-2 essay questions if the material supports it (a paragraph expected).',
+    'Write exactly ' + count + ' questions total. Mostly short_answer (a sentence or two expected); include a small number of essay questions only if the material and question count support it (a paragraph expected).',
     'The "rubric" field should briefly describe what a full-credit answer must include, for grading purposes later; do not show this to the student.',
     'Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
     'Respond with JSON only.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   return callGemini([{ text: prompt }]);
 }
 
-async function gradeTest(items){
+async function gradeTest(items, { level, leniency, spellingLenient, persona } = {}){
   const targetLang = getTargetLang();
+  const leniencyNote = {
+    strict: 'Grade STRICTLY: require complete, precise answers matching the rubric closely for full credit; deduct meaningfully for gaps.',
+    standard: 'Grade with STANDARD fairness: award credit for solid understanding, partial credit for partial understanding.',
+    lenient: 'Grade LENIENTLY: be generous with partial credit whenever the core idea is present, even if execution is imperfect.'
+  }[leniency || 'standard'];
+  const spellingNote = spellingLenient === false
+    ? 'Treat spelling and grammar errors as meaningful deductions where they obscure precise terminology.'
+    : 'Ignore minor spelling, grammar, and typo errors entirely — grade only on substance and understanding.';
+  const personaNote = persona && persona.trim() ? ('Write your feedback in the voice of this examiner persona: "' + persona.trim() + '", while staying constructive and clear.') : '';
   const prompt = [
     'You are grading a student test in ' + targetLang + '. For each question, compare the student answer to the rubric and award partial credit fairly. The student does not need exact wording, only to demonstrate the required understanding.',
+    levelInstruction(level || 'high school'),
+    leniencyNote,
+    spellingNote,
+    personaNote,
     'Return a JSON array, same length and order as input:',
     '{ "pointsEarned": number, "feedback": string }',
     'pointsEarned must be between 0 and the question\'s points value (may be fractional). Feedback is one or two short sentences explaining the score, written directly to the student in ' + targetLang + '.',
     '',
     'Items:',
     JSON.stringify(items.map((it,i)=>({ index:i, question: it.question, rubric: it.rubric, pointsPossible: it.points, studentAnswer: it.userAnswer || '(no answer given)' }))),
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   return callGemini([{ text: prompt }]);
 }
 
@@ -1230,7 +1358,6 @@ function computeStatsData(){
 function renderStatsPage(){
   if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
   const { selectedSets, entries } = computeStatsData();
-  const chartUnavailable = typeof Chart === 'undefined';
 
   const selectorHtml = (
     '<div class="stats-select-panel">' +
@@ -1264,26 +1391,6 @@ function renderStatsPage(){
       '<div class="section-heading"><h2>Stats</h2></div>' +
       selectorHtml +
       '<div class="stats-empty">No quiz or test attempts yet for the selected study sets. Take a practice quiz or formal test to start building stats.</div>'
-    );
-  }
-
-  if(chartUnavailable){
-    return (
-      '<div class="section-heading"><h2>Stats</h2></div>' +
-      selectorHtml +
-      '<div class="stats-empty">Stats are available, but the chart library could not load. Check your internet connection and refresh the page to restore the visual graphs.</div>' +
-      '<div class="ledger">' +
-        entries.slice().reverse().slice(0, 100).map(e => (
-          '<div class="ledger-row">' +
-            '<div>' +
-              '<div><span class="hist-type">' + e.type.toUpperCase() + '</span> ' + esc(e.setTitle) + ' <span class="chip-cat" style="border:none; padding-left:0;">' + esc(e.category) + '</span></div>' +
-              '<div class="ledger-meta"><span>' + new Date(e.timestamp).toLocaleString() + '</span><span>Grade: <strong>' + esc(e.letter) + '</strong></span></div>' +
-            '</div>' +
-            '<div class="hist-score"><span class="num">' + e.scoreText + '</span> (' + e.pct + '%)</div>' +
-          '</div>'
-        )).join('') +
-      '</div>' +
-    '</div>'
     );
   }
 
@@ -1363,7 +1470,6 @@ function destroyStatsCharts(){
 }
 
 function initStatsCharts(){
-  if(typeof Chart === 'undefined') return;
   destroyStatsCharts();
   const { entries } = computeStatsData();
   if(!entries.length) return;
@@ -1596,6 +1702,7 @@ function renderFlashcardReviewer(notes){
   const flipped = S.flashcardFlipped;
   const doneStatus = (S.flashcardDone && S.flashcardDone[idx]) || null;
   const gotCount = (S.flashcardDone || []).filter(x => x === 'got').length;
+  const allMastered = notes.length > 0 && notes.every((_,i) => (S.flashcardDone||[])[i] === 'got');
   return (
     '<div>' +
       '<div class="fc-nav">' +
@@ -1619,19 +1726,48 @@ function renderFlashcardReviewer(notes){
         '<button class="btn btn-quiet btn-sm" id="fc-review" style="' + (doneStatus==='review'?'border-color:var(--oxblood); color:var(--oxblood);':'') + '">Still learning</button>' +
         '<button class="btn btn-quiet btn-sm" id="fc-got" style="' + (doneStatus==='got'?'border-color:var(--green); color:var(--green);':'') + '">Got it</button>' +
       '</div>' +
+      (allMastered ? (
+        '<div style="text-align:center; margin-top:var(--sp-4);">' +
+          '<p style="font-size:13px; color:var(--ink-faint); margin-bottom:var(--sp-3);">You\'ve mastered all ' + notes.length + ' cards in this deck.</p>' +
+          '<button class="btn btn-primary btn-sm" id="fc-load-more">Load 8 new cards</button>' +
+        '</div>'
+      ) : '') +
     '</div>'
   );
 }
+
+const QUIZ_COUNT_OPTIONS = [5,10,15,20,25,30];
 
 function renderTabQuiz(set){
   const sess = S.quizSession;
   if(!sess){
     const diff = adaptiveDifficultyNote(set);
+    const qs = set.quizSettings || { count: 10, types: Object.keys(TYPE_LABELS), timerMode: 'none' };
+    const rec = recommendTimerMinutes(qs.count || 10);
     return (
       '<div>' +
-        '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Test your knowledge with instant scoring. Questions are drawn from your study materials.</p>' +
+        '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Test your knowledge with instant scoring. Questions are freshly generated from your study materials each time.</p>' +
         (diff ? '<div class="callout" style="margin-bottom:var(--sp-4); font-size:13px;"><span class="diff-badge ' + diff.cls + '">' + diff.label + '</span>&nbsp; ' + esc(diff.note) + '</div>' : '') +
-        '<button class="btn btn-primary" id="start-quiz">Start practice quiz (' + (set.quiz?.length||0) + ' questions)</button>' +
+        '<div class="setup-panel">' +
+          '<div class="setup-grid">' +
+            '<div class="field">' +
+              '<label class="field-label">Number of questions</label>' +
+              '<select id="quiz-count">' +
+                QUIZ_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((qs.count||10)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
+              '</select>' +
+            '</div>' +
+            renderTimerSetting('quiz', rec, qs.timerMode, qs.timerCustom) +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Question types</label>' +
+            '<div class="type-check-row">' +
+              Object.keys(TYPE_LABELS).map(t => (
+                '<label><input type="checkbox" class="quiz-type-check" value="' + t + '" ' + ((qs.types||Object.keys(TYPE_LABELS)).includes(t)?'checked':'') + ' /> ' + TYPE_LABELS[t] + '</label>'
+              )).join('') +
+            '</div>' +
+          '</div>' +
+          '<button class="btn btn-primary" id="start-quiz" style="margin-top:var(--sp-2);">Start practice quiz</button>' +
+        '</div>' +
       '</div>'
     );
   }
@@ -1647,8 +1783,7 @@ function renderTabQuiz(set){
         '</div>' +
         renderWeakAreas(sess) +
         '<div style="margin-bottom:var(--sp-5); display:flex; gap:var(--sp-3);">' +
-          '<button class="btn btn-primary" id="restart-quiz">Retake quiz</button>' +
-          '<button class="btn btn-quiet" id="adaptive-quiz">Fresh adaptive quiz</button>' +
+          '<button class="btn btn-primary" id="restart-quiz">Take another quiz</button>' +
         '</div>' +
         renderQuizQuestionsReview(sess) +
       '</div>'
@@ -1658,10 +1793,12 @@ function renderTabQuiz(set){
   return (
     '<div>' +
       '<div class="quiz-progress">' +
-        '<div class="quiz-progress-label"><span id="qp-text">' + answeredCount + ' of ' + set.quiz.length + ' answered</span><span>Practice Quiz</span></div>' +
-        '<div class="quiz-progress-track"><div class="quiz-progress-fill" id="qp-fill" style="width:' + Math.round(answeredCount/set.quiz.length*100) + '%;"></div></div>' +
+        '<div class="quiz-progress-label"><span id="qp-text">' + answeredCount + ' of ' + sess.questions.length + ' answered</span>' +
+          (sess.timerTotalSeconds ? '<span id="timer-display" class="timer-pin">' + formatTimer(sess.timerRemaining) + '</span>' : '<span>Practice Quiz</span>') +
+        '</div>' +
+        '<div class="quiz-progress-track"><div class="quiz-progress-fill" id="qp-fill" style="width:' + Math.round(answeredCount/sess.questions.length*100) + '%;"></div></div>' +
       '</div>' +
-      set.quiz.map((q, i) => renderQuizQuestionInput(q, i, sess.answers[i])).join('') +
+      sess.questions.map((q, i) => renderQuizQuestionInput(q, i, sess.answers[i])).join('') +
       '<div style="margin-top:var(--sp-6);">' +
         '<button class="btn btn-primary" id="submit-quiz">Submit quiz</button>' +
       '</div>' +
@@ -1723,19 +1860,45 @@ function renderQuizQuestionsReview(sess){
   }).join('');
 }
 
+const TEST_COUNT_OPTIONS = [5,10,15,20,25,30,40];
+
 function renderTabTest(set){
   const sess = S.testSession;
   if(!sess){
+    const ts = set.testSettings || { count: 10, leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none' };
+    const rec = recommendTimerMinutes(ts.count || 10);
     return (
       '<div>' +
-        '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Generate a formal test of short-answer and essay questions. Graded by AI on meaning and substance.</p>' +
-        '<div style="display:flex; gap:var(--sp-3); align-items:center;">' +
-          '<select id="test-count" style="width:160px;">' +
-            '<option value="5">5 questions</option>' +
-            '<option value="10" selected>10 questions</option>' +
-            '<option value="15">15 questions</option>' +
-          '</select>' +
-          '<button class="btn btn-primary" id="generate-test">Generate formal test</button>' +
+        '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Generate a formal test of short-answer and essay questions, graded by AI on meaning and substance.</p>' +
+        '<div class="setup-panel">' +
+          '<div class="setup-grid">' +
+            '<div class="field">' +
+              '<label class="field-label">Number of questions</label>' +
+              '<select id="test-count">' +
+                TEST_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((ts.count||10)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
+                '<option value="custom" ' + (!TEST_COUNT_OPTIONS.includes(ts.count)?'selected':'') + '>Custom&hellip;</option>' +
+              '</select>' +
+              '<input type="number" id="test-count-custom" min="1" max="100" value="' + (!TEST_COUNT_OPTIONS.includes(ts.count) ? ts.count : '') + '" placeholder="e.g. 50" style="margin-top:8px; display:' + (!TEST_COUNT_OPTIONS.includes(ts.count)?'block':'none') + ';" />' +
+            '</div>' +
+            '<div class="field">' +
+              '<label class="field-label">Grading leniency</label>' +
+              '<select id="test-leniency">' +
+                '<option value="strict" ' + (ts.leniency==='strict'?'selected':'') + '>Strict &mdash; precise answers required</option>' +
+                '<option value="standard" ' + ((ts.leniency||'standard')==='standard'?'selected':'') + '>Standard &mdash; fair partial credit</option>' +
+                '<option value="lenient" ' + (ts.leniency==='lenient'?'selected':'') + '>Lenient &mdash; generous partial credit</option>' +
+              '</select>' +
+            '</div>' +
+            renderTimerSetting('test', rec, ts.timerMode, ts.timerCustom) +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="test-spelling" ' + (ts.spellingLenient!==false?'checked':'') + ' /> Ignore minor spelling &amp; grammar mistakes when grading</label>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Examiner persona <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+            '<input type="text" id="test-persona" value="' + esc(ts.persona||'') + '" placeholder="e.g. a tough but fair professor, a warm and encouraging TA..." />' +
+            '<div class="field-hint">Flavors question phrasing and feedback tone. Leave blank for a neutral, professional grader.</div>' +
+          '</div>' +
+          '<button class="btn btn-primary" id="generate-test" style="margin-top:var(--sp-2);">Generate formal test</button>' +
         '</div>' +
       '</div>'
     );
@@ -1753,7 +1916,7 @@ function renderTabTest(set){
           '<div class="score-letter">Grade: ' + letter + '</div>' +
         '</div>' +
         '<div style="margin-bottom:var(--sp-5); display:flex; gap:var(--sp-3);">' +
-          '<button class="btn btn-primary" id="discard-test">Generate a new test</button>' +
+          '<button class="btn btn-primary" id="discard-test">Set up another test</button>' +
         '</div>' +
         renderTestQuestionsReview(sess) +
       '</div>'
@@ -1761,7 +1924,11 @@ function renderTabTest(set){
   }
   return (
     '<div>' +
-      '<div style="margin-bottom:var(--sp-4); font-family:var(--font-mono); font-size:13px; color:var(--ink-faint);">Formal Test &bull; Graded on substance</div>' +
+      '<div class="quiz-progress">' +
+        '<div class="quiz-progress-label"><span>Formal Test &bull; Graded on substance</span>' +
+          (sess.timerTotalSeconds ? '<span id="timer-display" class="timer-pin">' + formatTimer(sess.timerRemaining) + '</span>' : '') +
+        '</div>' +
+      '</div>' +
       sess.questions.map((q, i) => (
         '<div class="qcard">' +
           '<div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + q.points + ' PTS &bull; ' + q.type.toUpperCase().replace('_',' ') + '</div>' +
@@ -1925,6 +2092,7 @@ function bindEvents(){
 
   document.querySelectorAll('[data-nav]').forEach(el => {
     el.onclick = (e) => {
+      clearActiveTimer();
       const target = e.currentTarget.getAttribute('data-nav');
       if(target === 'dashboard'){ S.route = 'dashboard'; S.currentSetId = null; }
       else if(target === 'settings'){ S.route = 'settings'; }
@@ -2120,6 +2288,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
 
   document.querySelectorAll('[data-open-set]').forEach(el => {
     el.onclick = (e) => {
+      clearActiveTimer();
       S.currentSetId = e.currentTarget.getAttribute('data-open-set');
       S.currentTab = 'notes';
       S.quizSession = null;
@@ -2237,6 +2406,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
 
   document.querySelectorAll('[data-set-tab]').forEach(el => {
     el.onclick = (e) => {
+      clearActiveTimer();
       S.currentTab = e.currentTarget.getAttribute('data-set-tab');
       render();
     };
@@ -2301,34 +2471,111 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     };
   }
 
+  ['quiz-timer-mode','test-timer-mode'].forEach(id => {
+    const sel = document.getElementById(id);
+    if(sel){
+      sel.onchange = () => {
+        const prefix = id.replace('-timer-mode','');
+        const customInput = document.getElementById(prefix + '-timer-custom');
+        if(customInput) customInput.style.display = sel.value === 'custom' ? 'block' : 'none';
+      };
+    }
+  });
+  const testCountSel = document.getElementById('test-count');
+  if(testCountSel){
+    testCountSel.onchange = () => {
+      const customInput = document.getElementById('test-count-custom');
+      if(customInput) customInput.style.display = testCountSel.value === 'custom' ? 'block' : 'none';
+    };
+  }
+
+  const fcLoadMore = document.getElementById('fc-load-more');
+  if(fcLoadMore){
+    fcLoadMore.onclick = async () => {
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      S.loading = true;
+      S.loadingMsg = 'Reading materials & generating study set...';
+      render();
+      try{
+        const existingTitles = set.stickyNotes.map(sn=>sn.title);
+        const more = await generateMoreStickyNotes({
+          title: set.title,
+          notesSummary: set.notesSummary,
+          level: S.profile.level,
+          existingTitles,
+          count: 8
+        });
+        const startIdx = set.stickyNotes.length;
+        set.stickyNotes = set.stickyNotes.concat(more);
+        await saveStudySet(set);
+        S.flashcardIdx = startIdx;
+        S.flashcardFlipped = false;
+      }catch(e){
+        alert('Could not load more cards: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
   const startQuizBtn = document.getElementById('start-quiz');
   if(startQuizBtn){
-    startQuizBtn.onclick = () => {
+    startQuizBtn.onclick = async () => {
       const set = S.studySets.find(s=>s.id===S.currentSetId);
-      S.quizSession = {
-        questions: set.quiz,
-        answers: {},
-        submitted: false,
-        score: 0,
-        total: set.quiz.length,
-        gradedResults: []
-      };
+      const count = parseInt(document.getElementById('quiz-count').value);
+      const types = Array.from(document.querySelectorAll('.quiz-type-check:checked')).map(el=>el.value);
+      if(types.length === 0){ alert('Choose at least one question type.'); return; }
+      const rec = recommendTimerMinutes(count);
+      const timerMode = document.getElementById('quiz-timer-mode').value;
+      const timerCustomEl = document.getElementById('quiz-timer-custom');
+      const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
+      const timerMinutes = resolveTimerMinutes('quiz', rec);
+
+      const quizSettings = { count, types, timerMode, timerCustom };
+      await persistSetSettings(set, { quizSettings });
+
+      S.loading = true;
+      S.loadingMsg = 'Reading materials & generating study set...';
       render();
+      try{
+        const recentScores = getRecentScores(set, 3);
+        const questions = await generateQuizOnly({
+          title: set.title,
+          notesSummary: set.notesSummary,
+          level: S.profile.level,
+          count, types, recentScores
+        });
+        S.quizSession = {
+          questions,
+          answers: {},
+          submitted: false,
+          score: 0,
+          total: questions.length,
+          gradedResults: [],
+          timerTotalSeconds: timerMinutes ? timerMinutes*60 : null,
+          timerRemaining: timerMinutes ? timerMinutes*60 : null
+        };
+        if(timerMinutes){
+          startSessionTimer(S.quizSession, () => {
+            const btn = document.getElementById('submit-quiz');
+            if(btn) btn.click();
+          });
+        }
+      }catch(e){
+        alert('Could not generate quiz: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
     };
   }
 
   const restartQuizBtn = document.getElementById('restart-quiz');
   if(restartQuizBtn){
     restartQuizBtn.onclick = () => {
-      const set = S.studySets.find(s=>s.id===S.currentSetId);
-      S.quizSession = {
-        questions: set.quiz,
-        answers: {},
-        submitted: false,
-        score: 0,
-        total: set.quiz.length,
-        gradedResults: []
-      };
+      clearActiveTimer();
+      S.quizSession = null;
       render();
     };
   }
@@ -2350,42 +2597,12 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     };
   });
 
-  const adaptiveQuizBtn = document.getElementById('adaptive-quiz');
-  if(adaptiveQuizBtn){
-    adaptiveQuizBtn.onclick = async () => {
-      const set = S.studySets.find(s=>s.id===S.currentSetId);
-      const types = Array.from(new Set(set.quiz.map(q=>q.type)));
-      S.loading = true;
-      S.loadingMsg = 'Generating formal test...'; // reuse "setting exam" style flavor bank via similar wording
-      S.loadingMsg = 'Reading materials & generating study set...';
-      render();
-      try{
-        const recentScores = getRecentScores(set, 3);
-        const newQuiz = await generateQuizOnly({
-          title: set.title,
-          notesSummary: set.notesSummary,
-          level: S.profile.level,
-          count: set.quiz.length,
-          types,
-          recentScores
-        });
-        set.quiz = newQuiz;
-        await saveStudySet(set);
-        S.quizSession = null;
-      }catch(e){
-        alert('Could not generate a new adaptive quiz: ' + e.message);
-      }finally{
-        S.loading = false;
-        render();
-      }
-    };
-  }
-
   const submitQuizBtn = document.getElementById('submit-quiz');
   if(submitQuizBtn){
     submitQuizBtn.onclick = async () => {
       const sess = S.quizSession;
       const set = S.studySets.find(s=>s.id===S.currentSetId);
+      clearActiveTimer();
       
       const shortItems = [];
       sess.questions.forEach((q, i) => {
@@ -2401,7 +2618,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       try{
         let gradedShort = [];
         if(shortItems.length > 0){
-          gradedShort = await gradeShortAnswers(shortItems);
+          gradedShort = await gradeShortAnswers(shortItems, S.profile.level);
         }
 
         let score = 0;
@@ -2466,13 +2683,26 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
   if(generateTestBtn){
     generateTestBtn.onclick = async () => {
       const set = S.studySets.find(s=>s.id===S.currentSetId);
-      const count = parseInt(document.getElementById('test-count').value);
+      const countSelVal = document.getElementById('test-count').value;
+      const count = countSelVal === 'custom' ? (parseInt(document.getElementById('test-count-custom').value) || 10) : parseInt(countSelVal);
+      const leniency = document.getElementById('test-leniency').value;
+      const spellingLenient = document.getElementById('test-spelling').checked;
+      const persona = document.getElementById('test-persona').value.trim();
+      const rec = recommendTimerMinutes(count);
+      const timerMode = document.getElementById('test-timer-mode').value;
+      const timerCustomEl = document.getElementById('test-timer-custom');
+      const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
+      const timerMinutes = resolveTimerMinutes('test', rec);
+
+      const testSettings = { count, leniency, spellingLenient, persona, timerMode, timerCustom };
+      await persistSetSettings(set, { testSettings });
+
       S.loading = true;
       S.loadingMsg = 'Generating formal test...';
       render();
 
       try{
-        const res = await generateTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, count });
+        const res = await generateTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, count, leniency, persona });
         const totalPoints = res.questions.reduce((acc,q)=>acc+q.points, 0);
         S.testSession = {
           questions: res.questions,
@@ -2480,8 +2710,17 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           answers: {},
           submitted: false,
           pointsEarned: 0,
-          gradedResults: []
+          gradedResults: [],
+          leniency, spellingLenient, persona,
+          timerTotalSeconds: timerMinutes ? timerMinutes*60 : null,
+          timerRemaining: timerMinutes ? timerMinutes*60 : null
         };
+        if(timerMinutes){
+          startSessionTimer(S.testSession, () => {
+            const btn = document.getElementById('submit-test');
+            if(btn) btn.click();
+          });
+        }
       }catch(e){
         alert('Test generation failed: ' + e.message);
       }finally{
@@ -2494,6 +2733,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
   const discardTestBtn = document.getElementById('discard-test');
   if(discardTestBtn){
     discardTestBtn.onclick = () => {
+      clearActiveTimer();
       S.testSession = null;
       render();
     };
@@ -2511,6 +2751,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     submitTestBtn.onclick = async () => {
       const sess = S.testSession;
       const set = S.studySets.find(s=>s.id===S.currentSetId);
+      clearActiveTimer();
 
       const items = sess.questions.map((q, i) => ({
         question: q.question,
@@ -2524,7 +2765,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       render();
 
       try{
-        const graded = await gradeTest(items);
+        const graded = await gradeTest(items, { level: S.profile.level, leniency: sess.leniency, spellingLenient: sess.spellingLenient, persona: sess.persona });
         let pointsEarned = 0;
         const gradedResults = sess.questions.map((q, i) => {
           const g = graded[i] || { pointsEarned: 0, feedback: '' };
