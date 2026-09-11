@@ -215,6 +215,61 @@
     .topbar{ padding: var(--sp-5) 0 var(--sp-3); }
     .notes-grid{ grid-template-columns: 1fr; }
   }
+
+  /* ── Flashcard reviewer ── */
+  .flashcard-wrap{ perspective: 1000px; width:100%; max-width:520px; height:220px; cursor:pointer; margin: 0 auto var(--sp-5); }
+  .flashcard-inner{ position:relative; width:100%; height:100%; transform-style: preserve-3d; transition: transform 0.45s ease; }
+  .flashcard-wrap.flipped .flashcard-inner{ transform: rotateY(180deg); }
+  .flashcard-face{
+    position:absolute; inset:0; backface-visibility:hidden;
+    border: 1px solid var(--rule-strong); background: var(--paper-raised);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding: var(--sp-5); text-align:center; gap: var(--sp-3);
+  }
+  .flashcard-face.back{ transform: rotateY(180deg); background: var(--paper-deep); border-left: 3px solid var(--green); }
+  .flashcard-face .fc-label{ font-family: var(--font-mono); font-size:11px; color: var(--ink-faint); letter-spacing:0.5px; }
+  .flashcard-face .fc-text{ font-family: var(--font-serif); font-size:18px; line-height:1.45; color: var(--ink); }
+  .flashcard-face.back .fc-text{ font-size:15px; color: var(--ink-soft); }
+  .fc-nav{ display:flex; align-items:center; justify-content:center; gap: var(--sp-4); margin-bottom: var(--sp-4); }
+  .fc-counter{ font-family: var(--font-mono); font-size:13px; color: var(--ink-faint); }
+  .fc-actions{ display:flex; gap: var(--sp-3); justify-content:center; margin-bottom: var(--sp-5); }
+
+  /* ── Quiz progress bar ── */
+  .quiz-progress{ margin-bottom: var(--sp-4); }
+  .quiz-progress-label{ display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:11.5px; color:var(--ink-faint); margin-bottom: var(--sp-2); }
+  .quiz-progress-track{ height:3px; background:var(--rule); }
+  .quiz-progress-fill{ height:3px; background:var(--oxblood); transition: width 0.3s ease; }
+
+  /* ── Streak / activity on dashboard ── */
+  .streak-bar{ display:flex; align-items:center; gap: var(--sp-3); padding: var(--sp-3) 0 var(--sp-4); margin-bottom: var(--sp-4); border-bottom: 1px solid var(--rule); }
+  .streak-flame{ font-size:20px; }
+  .streak-count{ font-family: var(--font-mono); font-size:22px; font-weight:500; color: var(--amber); }
+  .streak-label{ font-size:12.5px; color: var(--ink-faint); }
+  .activity-heatmap{ display:flex; gap:3px; flex-wrap:wrap; margin-top: var(--sp-2); }
+  .hm-cell{ width:13px; height:13px; background: var(--paper-raised); border:1px solid var(--rule); }
+  .hm-cell.active-1{ background: var(--amber-wash); border-color: var(--amber); }
+  .hm-cell.active-2{ background: #d4a84b; border-color: var(--amber); }
+  .hm-cell.active-3{ background: var(--amber); border-color: var(--amber-dark,#6b4d12); }
+  .hm-cell.today{ outline: 2px solid var(--navy); outline-offset:1px; }
+
+  /* ── Weak-concept breakdown ── */
+  .weak-row{ display:flex; align-items:center; justify-content:space-between; padding: var(--sp-3) 0; border-bottom:1px solid var(--rule); font-size:13.5px; }
+  .weak-topic{ font-family:var(--font-serif); font-size:14px; }
+  .weak-bar-wrap{ flex:1; margin:0 var(--sp-4); height:6px; background:var(--rule); }
+  .weak-bar-fill{ height:6px; background:var(--oxblood); }
+  .weak-pct{ font-family:var(--font-mono); font-size:12.5px; color:var(--ink-soft); min-width:36px; text-align:right; }
+
+  /* ── Difficulty badge on dashboard ── */
+  .diff-badge{ font-family:var(--font-mono); font-size:10.5px; padding:2px 7px; border:1px solid var(--green); color:var(--green); background:var(--green-wash); display:inline-block; }
+  .diff-badge.hard{ border-color:var(--oxblood); color:var(--oxblood); background:var(--oxblood-wash); }
+
+  /* ── Rubric reveal block ── */
+  .rubric-reveal{ margin-top:var(--sp-3); }
+  .rubric-reveal summary{ font-size:12.5px; color:var(--navy); cursor:pointer; list-style:none; display:inline-flex; align-items:center; gap:4px; }
+  .rubric-reveal summary::-webkit-details-marker{ display:none; }
+  .rubric-reveal summary::before{ content:'▶'; font-size:9px; transition: transform 0.2s; }
+  details[open] .rubric-reveal summary::before{ transform: rotate(90deg); }
+  .rubric-reveal .rubric-body{ margin-top:var(--sp-2); font-size:12.5px; color:var(--ink-soft); line-height:1.55; padding: var(--sp-3); border:1px solid var(--rule-strong); background:var(--paper-raised); }
 </style>
 </head>
 <body>
@@ -243,7 +298,13 @@ const S = {
   error: null,
   darkMode: localStorage.getItem('darkMode') === 'true',
   modelFallbackModal: null,
-  supabaseClient: supabase
+  supabaseClient: supabase,
+  // flashcard reviewer
+  flashcardIdx: 0,
+  flashcardFlipped: false,
+  flashcardDone: [],   // 'got' | 'review'
+  // current tab sub-mode: 'grid' | 'flashcards'
+  notesMode: 'grid'
 };
 const PRESET_API_KEYS = [
   'AQ.Ab8RN6JSEwHOge-XP7-dbrOBOCbbQlabvPwgbst0u1E0N494_g',
@@ -351,7 +412,7 @@ async function loadAll(){
       for(const s of setsData){
         const [snRes, qRes, hRes] = await Promise.all([
           S.supabaseClient.from('sticky_notes').select('title, body').eq('study_set_id', s.id),
-          S.supabaseClient.from('quizzes').select('type, question, options, answer').eq('study_set_id', s.id),
+          S.supabaseClient.from('quizzes').select('type, question, options, answer, topic, explanation').eq('study_set_id', s.id),
           S.supabaseClient.from('history').select('type, score_text, pct, letter, timestamp').eq('study_set_id', s.id).order('timestamp', { ascending: true })
         ]);
 
@@ -421,7 +482,7 @@ async function checkAndRunLocalStorageMigration(userId){
         }
 
         if(setObj.quiz?.length){
-          const qRows = setObj.quiz.map(q => ({ study_set_id: setObj.id, type: q.type, question: q.question, options: q.options || [], answer: q.answer }));
+          const qRows = setObj.quiz.map(q => ({ study_set_id: setObj.id, type: q.type, question: q.question, options: q.options || [], answer: q.answer, topic: q.topic || null, explanation: q.explanation || null }));
           await S.supabaseClient.from('quizzes').insert(qRows);
         }
 
@@ -481,7 +542,7 @@ async function saveStudySet(set){
 
   await S.supabaseClient.from('quizzes').delete().eq('study_set_id', set.id);
   if(set.quiz?.length){
-    await S.supabaseClient.from('quizzes').insert(set.quiz.map(q => ({ study_set_id: set.id, type: q.type, question: q.question, options: q.options || [], answer: q.answer })));
+    await S.supabaseClient.from('quizzes').insert(set.quiz.map(q => ({ study_set_id: set.id, type: q.type, question: q.question, options: q.options || [], answer: q.answer, topic: q.topic || null, explanation: q.explanation || null })));
   }
 
   const idx = S.studySets.findIndex(s=>s.id===set.id);
@@ -495,6 +556,105 @@ async function deleteStudySet(id){
 }
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+// ── Streak & activity helpers ──
+function computeStreakFromHistory(allHistory){
+  // allHistory = flat array of {timestamp} from all study sets
+  if(!allHistory || allHistory.length === 0) return { streak: 0, activityDays: new Set() };
+  const daySet = new Set(allHistory.map(h => {
+    const d = new Date(h.timestamp);
+    return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+  }));
+  const activityDays = new Set(allHistory.map(h => {
+    const d = new Date(h.timestamp);
+    d.setHours(0,0,0,0);
+    return d.getTime();
+  }));
+  // count streak going backwards from today
+  let streak = 0;
+  const today = new Date(); today.setHours(0,0,0,0);
+  for(let i = 0; i <= 365; i++){
+    const check = new Date(today.getTime() - i * 86400000);
+    const key = check.getFullYear() + '-' + check.getMonth() + '-' + check.getDate();
+    if(daySet.has(key)){ streak++; }
+    else if(i > 0){ break; } // allow today to be missing (haven't studied yet today)
+  }
+  return { streak, activityDays };
+}
+
+function renderStreakBar(allHistory){
+  const { streak, activityDays } = computeStreakFromHistory(allHistory);
+  // Build 10-week heatmap (70 days ending today)
+  const today = new Date(); today.setHours(0,0,0,0);
+  let cells = '';
+  for(let i = 69; i >= 0; i--){
+    const d = new Date(today.getTime() - i * 86400000);
+    d.setHours(0,0,0,0);
+    const isToday = i === 0;
+    // count activity on that day
+    const dayStart = d.getTime();
+    const dayEnd = dayStart + 86399999;
+    const count = allHistory.filter(h => h.timestamp >= dayStart && h.timestamp <= dayEnd).length;
+    const cls = count === 0 ? '' : count === 1 ? 'active-1' : count === 2 ? 'active-2' : 'active-3';
+    cells += '<div class="hm-cell ' + cls + (isToday?' today':'') + '" title="' + d.toLocaleDateString() + (count?' — '+count+' session'+(count>1?'s':''):'') + '"></div>';
+  }
+  return (
+    '<div class="streak-bar">' +
+      '<span class="streak-flame">🔥</span>' +
+      '<span class="streak-count">' + streak + '</span>' +
+      '<span class="streak-label">day streak</span>' +
+    '</div>' +
+    '<div style="margin-bottom:var(--sp-2); font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono);">Last 10 weeks of activity</div>' +
+    '<div class="activity-heatmap">' + cells + '</div>'
+  );
+}
+
+// ── Weak concept analysis ──
+function computeWeakTopics(sess){
+  // sess = a submitted quiz session {questions, gradedResults}
+  if(!sess || !sess.questions || !sess.questions.length) return [];
+  const topicMap = {};
+  sess.questions.forEach((q, qi) => {
+    const topic = q.topic || TYPE_LABELS[q.type] || q.type;
+    if(!topicMap[topic]) topicMap[topic] = { correct: 0, total: 0 };
+    topicMap[topic].total++;
+    if(sess.gradedResults[qi] && sess.gradedResults[qi].correct) topicMap[topic].correct++;
+  });
+  return Object.entries(topicMap)
+    .map(([topic, v]) => ({ topic, correct: v.correct, total: v.total, pct: v.total ? Math.round(v.correct/v.total*100) : 0 }))
+    .sort((a,b) => a.pct - b.pct);
+}
+
+function renderWeakAreas(sess){
+  const weak = computeWeakTopics(sess);
+  if(weak.length < 2) return ''; // not useful with only one topic
+  return (
+    '<div style="margin: var(--sp-5) 0;">' +
+      '<h3 style="margin-bottom:var(--sp-3); font-size:15px;">Breakdown by Concept</h3>' +
+      weak.map(w => (
+        '<div class="weak-row">' +
+          '<span class="weak-topic">' + esc(w.topic) + '</span>' +
+          '<div class="weak-bar-wrap"><div class="weak-bar-fill" style="width:' + w.pct + '%; background:' + (w.pct < 60 ? 'var(--oxblood)' : w.pct < 85 ? 'var(--amber)' : 'var(--green)') + ';"></div></div>' +
+          '<span class="weak-pct">' + w.correct + '/' + w.total + '</span>' +
+        '</div>'
+      )).join('') +
+    '</div>'
+  );
+}
+
+// ── Adaptive difficulty ──
+function getRecentScores(set, n=3){
+  const hist = (set.history || []).slice(-n);
+  return hist.map(h => h.pct);
+}
+function adaptiveDifficultyNote(set){
+  const recent = getRecentScores(set);
+  if(recent.length < 2) return null;
+  const avg = Math.round(recent.reduce((a,b)=>a+b,0)/recent.length);
+  if(avg >= 88) return { label: 'Harder', cls: 'hard', note: 'Scoring ' + avg + '% avg — questions will be more challenging.' };
+  if(avg <= 55) return { label: 'Easier', cls: '', note: 'Scoring ' + avg + '% avg — questions will be more accessible.' };
+  return null;
+}
 
 function requestModelFallback(failedModel, errorMsg) {
   return new Promise((resolve) => {
@@ -587,31 +747,58 @@ const TYPE_LABELS = {
   fill_blank: 'Fill in the blank',
 };
 
-async function generateStudyMaterials({ title, notesText, files, level, count, types }){
+function getTargetLang(){
+  const lang = S.profile?.language;
+  if(!lang || lang === 'english') return 'English';
+  if(lang === 'albanian') return 'Albanian (Gjuha Shqipe)';
+  // support any future language value directly
+  return lang.charAt(0).toUpperCase() + lang.slice(1);
+}
+
+async function generateStudyMaterials({ title, notesText, files, level, count, types, recentScores }){
   const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
-  const targetLang = S.profile?.language === 'albanian' ? 'Albanian (Gjuha Shqipe)' : 'English';
+  const targetLang = getTargetLang();
+  let difficultyNote = '';
+  if(recentScores && recentScores.length >= 2){
+    const avg = Math.round(recentScores.reduce((a,b)=>a+b,0)/recentScores.length);
+    if(avg >= 88) difficultyNote = 'The student has recently scored ' + avg + '% on average — increase question difficulty and include more nuanced, higher-order thinking questions.';
+    else if(avg <= 55) difficultyNote = 'The student has recently scored ' + avg + '% on average — use slightly more straightforward, accessible questions to build confidence.';
+  }
   const prompt = [
     'You are building study materials for a ' + (level==='college'?'college':'high school') + ' student.',
     'Topic / set title: ' + title,
+    difficultyNote ? 'Adaptive difficulty instruction: ' + difficultyNote : '',
     '',
     'Source material follows below as pasted notes and/or attached files (images or PDFs of notes).',
     'Read everything carefully before writing anything.',
     '',
-    'IMPORTANT: All generated text content (including notesSummary, stickyNotes titles and bodies, quiz questions, options, and answers) MUST be entirely in ' + targetLang + '.',
+    'IMPORTANT: All generated text content (notesSummary, stickyNotes, quiz questions, options, answers, explanations) MUST be entirely in ' + targetLang + '.',
+    '',
+    'First assess whether there is enough source material to generate ' + count + ' meaningful questions. Set "sufficientMaterial" to false if notes are too sparse (under ~100 words and no files), otherwise true.',
     '',
     'Produce a JSON object with exactly these fields:',
     '{',
-    '  "notesSummary": string,  // a clear, consolidated plain-text write-up of the source material, thorough enough to write a test from later, no formatting markup, 300-900 words',
-    '  "stickyNotes": [ { "title": string, "body": string } ],  // 6 to 12 short revision notes, each title is a concept name, body is 1-3 sentences a student could copy onto an index card',
-    '  "quiz": [ { "type": one of ["multiple_choice","true_false","short_answer","fill_blank"], "question": string, "options": [string] (only for multiple_choice, 4 options), "answer": string } ]',
+    '  "sufficientMaterial": boolean,',
+    '  "notesSummary": string,  // clear, consolidated plain-text write-up, thorough enough to write a test from, no markup, 300-900 words',
+    '  "stickyNotes": [ { "title": string, "body": string } ],  // 6-12 revision notes, each title is a concept name, body is 1-3 sentences for an index card',
+    '  "quiz": [',
+    '    {',
+    '      "type": one of ["multiple_choice","true_false","short_answer","fill_blank"],',
+    '      "topic": string,  // 2-4 word concept label this question tests, e.g. "Due Process", "Cell Mitosis"',
+    '      "question": string,',
+    '      "options": [string],  // only for multiple_choice: exactly 4 options',
+    '      "answer": string,',
+    '      "explanation": string  // 1-2 sentences explaining WHY the answer is correct, shown after grading',
+    '    }',
+    '  ]',
     '}',
     '',
-    'Generate exactly ' + count + ' quiz questions, using only these question types: ' + typeList + '.',
-    'Distribute question types roughly evenly across the allowed types. Base every question strictly on the source material, nothing invented.',
-    'For fill_blank questions, use "_____" in the question text to mark the blank, and give the exact missing word or phrase as the answer.',
+    'Generate exactly ' + count + ' quiz questions, using only these types: ' + typeList + '.',
+    'Distribute types roughly evenly. Base every question strictly on the source material — nothing invented.',
+    'For fill_blank, use "_____" in the question text; give the exact missing word/phrase as the answer.',
     'Calibrate difficulty for a ' + (level==='college'?'college':'high school') + ' student.',
     'Respond with JSON only.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   const parts = [{ text: prompt }];
   if(files && files.length){
@@ -620,11 +807,19 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
   if(notesText && notesText.trim()){
     parts.push({ text: 'Pasted notes:\n' + notesText });
   }
-  return callGemini(parts);
+  const result = await callGemini(parts);
+
+  // Warn user if material was flagged as insufficient
+  if(result.sufficientMaterial === false){
+    S._insufficientMaterialWarning = true;
+  } else {
+    S._insufficientMaterialWarning = false;
+  }
+  return result;
 }
 
 async function gradeShortAnswers(items){
-  const targetLang = S.profile?.language === 'albanian' ? 'Albanian (Gjuha Shqipe)' : 'English';
+  const targetLang = getTargetLang();
   const prompt = [
     'You are an expert, fair teacher grading student quiz answers in ' + targetLang + '.',
     'Grade each student answer below against the expected answer with full flexibility and free will. Account for language differences, true/false translations (e.g., matching English "True" or "False" to Albanian "E vërtetë" or "E rreme"/"E gabuar"), synonyms, spelling, case, and word order; the student does not need to match the expected answer word for word, only demonstrate correct substance and conceptual understanding.',
@@ -638,8 +833,35 @@ async function gradeShortAnswers(items){
   return callGemini([{ text: prompt }]);
 }
 
+async function generateQuizOnly({ title, notesSummary, level, count, types, recentScores }){
+  const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
+  const targetLang = getTargetLang();
+  let difficultyNote = '';
+  if(recentScores && recentScores.length >= 2){
+    const avg = Math.round(recentScores.reduce((a,b)=>a+b,0)/recentScores.length);
+    if(avg >= 88) difficultyNote = 'The student recently averaged ' + avg + '% — make this set noticeably more challenging, with nuanced and higher-order questions.';
+    else if(avg <= 55) difficultyNote = 'The student recently averaged ' + avg + '% — make this set more accessible and straightforward to help rebuild confidence.';
+    else difficultyNote = 'The student recently averaged ' + avg + '% — keep difficulty similar to before, but write entirely new questions.';
+  }
+  const prompt = [
+    'Write a fresh practice quiz for a ' + (level==='college'?'college':'high school') + ' student on "' + title + '", based only on this notes summary:',
+    '',
+    notesSummary,
+    '',
+    difficultyNote ? 'Adaptive difficulty instruction: ' + difficultyNote : '',
+    'IMPORTANT: All text MUST be entirely in ' + targetLang + '.',
+    '',
+    'Produce a JSON object: { "quiz": [ { "type": one of ["multiple_choice","true_false","short_answer","fill_blank"], "topic": string, "question": string, "options": [string] (4, only for multiple_choice), "answer": string, "explanation": string } ] }',
+    'Generate exactly ' + count + ' NEW questions (do not repeat obvious prior phrasing), using only these types: ' + typeList + '. Distribute evenly.',
+    'For fill_blank use "_____" in the question text.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  const res = await callGemini([{ text: prompt }]);
+  return res.quiz;
+}
+
 async function generateTest({ title, notesSummary, level, count }){
-  const targetLang = S.profile?.language === 'albanian' ? 'Albanian (Gjuha Shqipe)' : 'English';
+  const targetLang = getTargetLang();
   const prompt = [
     'Write a formal test for a ' + (level==='college'?'college':'high school') + ' student, based only on the following study material summary for "' + title + '":',
     '',
@@ -656,7 +878,7 @@ async function generateTest({ title, notesSummary, level, count }){
 }
 
 async function gradeTest(items){
-  const targetLang = S.profile?.language === 'albanian' ? 'Albanian (Gjuha Shqipe)' : 'English';
+  const targetLang = getTargetLang();
   const prompt = [
     'You are grading a student test in ' + targetLang + '. For each question, compare the student answer to the rubric and award partial credit fairly. The student does not need exact wording, only to demonstrate the required understanding.',
     'Return a JSON array, same length and order as input:',
@@ -726,8 +948,19 @@ function renderRoute(){
   }
 }
 
+const LOADING_FLAVORS = {
+  'Reading materials & generating study set...': ['Consulting the margins\u2026', 'Cross-referencing your notes\u2026', 'Distilling the essentials\u2026', 'Annotating with care\u2026'],
+  'Grading quiz answers...': ['Marking in red ink\u2026', 'Weighing your answers\u2026', 'Comparing notes\u2026'],
+  'Generating formal test...': ['Setting the examination\u2026', 'Drafting the rubric\u2026', 'Sharpening the questions\u2026'],
+  'Grading test responses...': ['Reading between the lines\u2026', 'Awarding partial credit fairly\u2026', 'Consulting the key\u2026'],
+};
+function getFlavorMsg(msg){
+  const flavors = LOADING_FLAVORS[msg];
+  if(!flavors) return msg;
+  return flavors[Math.floor(Date.now() / 1800) % flavors.length];
+}
 function renderLoadingOverlay(){
-  return '<div class="loading-overlay"><div class="loading-mark"></div><div class="loading-text">' + esc(S.loadingMsg||'Working') + '</div></div>';
+  return '<div class="loading-overlay"><div class="loading-mark"></div><div class="loading-text">' + esc(getFlavorMsg(S.loadingMsg||'Working')) + '</div></div>';
 }
 
 function renderFooter(){
@@ -831,9 +1064,11 @@ function renderSettings(){
     '<div class="field">' +
       '<label class="field-label">Study Content Language</label>' +
       '<select id="set-language">' +
-        '<option value="english" ' + (lang !== 'albanian' ? 'selected' : '') + '>English</option>' +
+        '<option value="english" ' + (lang === 'english' ? 'selected' : '') + '>English</option>' +
         '<option value="albanian" ' + (lang === 'albanian' ? 'selected' : '') + '>Albanian (Shqip)</option>' +
+        '<option value="other" ' + (lang !== 'english' && lang !== 'albanian' ? 'selected' : '') + '>Other (type below)</option>' +
       '</select>' +
+      '<input type="text" id="set-language-other" value="' + esc(lang !== 'english' && lang !== 'albanian' ? lang : '') + '" placeholder="e.g. Spanish, French, German..." style="margin-top:8px; display:' + (lang !== 'english' && lang !== 'albanian' ? 'block' : 'none') + ';" />' +
       '<div class="field-hint">Generates AI study notes, sticky notes, quizzes, and tests in this language.</div>' +
     '</div>' +
     '<hr class="divider" />' +
@@ -909,7 +1144,9 @@ function renderCustomScaleEditor(custom) {
 
 function renderDashboard(){
   const sets = S.studySets;
+  const allHistory = sets.flatMap(s => (s.history||[]).map(h => ({ timestamp: h.timestamp })));
   return (
+    (allHistory.length ? renderStreakBar(allHistory) : '') +
     '<div class="section-heading">' +
       '<h2>Study Sets</h2>' +
       '<span class="muted" style="font-size:13px">' + sets.length + ' set' + (sets.length===1?'':'s') + '</span>' +
@@ -917,10 +1154,12 @@ function renderDashboard(){
     '<div class="ledger">' +
       (sets.length === 0 ? 
         '<div class="ledger-empty">No study sets yet. Click <strong>New study set</strong> above to create one from your notes or files.</div>' :
-        sets.map(s => (
+        sets.map(s => {
+          const diff = adaptiveDifficultyNote(s);
+          return (
           '<div class="ledger-row clickable" data-open-set="' + s.id + '">' +
             '<div>' +
-              '<div class="ledger-title">' + esc(s.title) + '</div>' +
+              '<div class="ledger-title">' + esc(s.title) + (diff ? ' <span class="diff-badge ' + diff.cls + '">' + diff.label + '</span>' : '') + '</div>' +
               '<div class="ledger-meta">' +
                 '<span>Updated <span class="num">' + new Date(s.updatedAt||Date.now()).toLocaleDateString() + '</span></span>' +
                 '<span><span class="num">' + (s.stickyNotes?.length||0) + '</span> sticky notes</span>' +
@@ -930,7 +1169,8 @@ function renderDashboard(){
             '</div>' +
             '<button class="btn btn-quiet btn-sm" data-delete-set="' + s.id + '" title="Delete set">Delete</button>' +
           '</div>'
-        )).join('')
+          );
+        }).join('')
       ) +
     '</div>'
   );
@@ -1026,18 +1266,30 @@ function renderSetTabContent(set, tab){
 }
 
 function renderTabNotes(set){
+  const mode = S.notesMode || 'grid';
+  const notes = set.stickyNotes || [];
   return (
     '<div>' +
       '<div style="margin-bottom:var(--sp-6)">' +
-        '<h3 style="margin-bottom:var(--sp-3)">Revision Sticky Notes</h3>' +
-        '<div class="notes-grid">' +
-          (set.stickyNotes||[]).map((sn, i) => (
-            '<div class="sticky stagger-in" style="animation-delay:' + (i*40) + 'ms">' +
-              '<h4>' + esc(sn.title) + '</h4>' +
-              '<p>' + esc(sn.body) + '</p>' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-3);">' +
+          '<h3>Revision Sticky Notes</h3>' +
+          (notes.length ? (
+            '<div class="choice-row" style="margin:0;">' +
+              '<button class="choice-pill ' + (mode==='grid'?'selected':'') + '" data-notes-mode="grid">Grid</button>' +
+              '<button class="choice-pill ' + (mode==='flashcards'?'selected':'') + '" data-notes-mode="flashcards">Flashcards</button>' +
             '</div>'
-          )).join('') +
+          ) : '') +
         '</div>' +
+        (mode === 'flashcards' && notes.length ? renderFlashcardReviewer(notes) : (
+          '<div class="notes-grid">' +
+            notes.map((sn, i) => (
+              '<div class="sticky stagger-in" style="animation-delay:' + (i*40) + 'ms">' +
+                '<h4>' + esc(sn.title) + '</h4>' +
+                '<p>' + esc(sn.body) + '</p>' +
+              '</div>'
+            )).join('') +
+          '</div>'
+        )) +
       '</div>' +
       '<hr class="divider" />' +
       '<div>' +
@@ -1048,12 +1300,47 @@ function renderTabNotes(set){
   );
 }
 
+function renderFlashcardReviewer(notes){
+  const idx = Math.min(S.flashcardIdx || 0, notes.length - 1);
+  const card = notes[idx];
+  const flipped = S.flashcardFlipped;
+  const doneStatus = (S.flashcardDone && S.flashcardDone[idx]) || null;
+  const gotCount = (S.flashcardDone || []).filter(x => x === 'got').length;
+  return (
+    '<div>' +
+      '<div class="fc-nav">' +
+        '<button class="btn btn-quiet btn-sm" id="fc-prev" ' + (idx===0?'disabled':'') + '>&larr; Prev</button>' +
+        '<span class="fc-counter">Card ' + (idx+1) + ' of ' + notes.length + ' &bull; ' + gotCount + ' mastered</span>' +
+        '<button class="btn btn-quiet btn-sm" id="fc-next" ' + (idx===notes.length-1?'disabled':'') + '>Next &rarr;</button>' +
+      '</div>' +
+      '<div class="flashcard-wrap ' + (flipped?'flipped':'') + '" id="fc-card">' +
+        '<div class="flashcard-inner">' +
+          '<div class="flashcard-face front">' +
+            '<span class="fc-label">CONCEPT &bull; tap to flip</span>' +
+            '<span class="fc-text">' + esc(card.title) + '</span>' +
+          '</div>' +
+          '<div class="flashcard-face back">' +
+            '<span class="fc-label">EXPLANATION</span>' +
+            '<span class="fc-text">' + esc(card.body) + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="fc-actions">' +
+        '<button class="btn btn-quiet btn-sm" id="fc-review" style="' + (doneStatus==='review'?'border-color:var(--oxblood); color:var(--oxblood);':'') + '">Still learning</button>' +
+        '<button class="btn btn-quiet btn-sm" id="fc-got" style="' + (doneStatus==='got'?'border-color:var(--green); color:var(--green);':'') + '">Got it</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
 function renderTabQuiz(set){
   const sess = S.quizSession;
   if(!sess){
+    const diff = adaptiveDifficultyNote(set);
     return (
       '<div>' +
         '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Test your knowledge with instant scoring. Questions are drawn from your study materials.</p>' +
+        (diff ? '<div class="callout" style="margin-bottom:var(--sp-4); font-size:13px;"><span class="diff-badge ' + diff.cls + '">' + diff.label + '</span>&nbsp; ' + esc(diff.note) + '</div>' : '') +
         '<button class="btn btn-primary" id="start-quiz">Start practice quiz (' + (set.quiz?.length||0) + ' questions)</button>' +
       '</div>'
     );
@@ -1068,16 +1355,22 @@ function renderTabQuiz(set){
           '<div class="score-label">SCORE &nbsp;&bull;&nbsp; ' + pct + '%</div>' +
           '<div class="score-letter">Grade: ' + letter + '</div>' +
         '</div>' +
+        renderWeakAreas(sess) +
         '<div style="margin-bottom:var(--sp-5); display:flex; gap:var(--sp-3);">' +
           '<button class="btn btn-primary" id="restart-quiz">Retake quiz</button>' +
+          '<button class="btn btn-quiet" id="adaptive-quiz">Fresh adaptive quiz</button>' +
         '</div>' +
         renderQuizQuestionsReview(sess) +
       '</div>'
     );
   }
+  const answeredCount = Object.keys(sess.answers).filter(k => (sess.answers[k]||'').toString().trim() !== '').length;
   return (
     '<div>' +
-      '<div style="margin-bottom:var(--sp-4); font-family:var(--font-mono); font-size:13px; color:var(--ink-faint);">Practice Quiz &bull; ' + set.quiz.length + ' questions</div>' +
+      '<div class="quiz-progress">' +
+        '<div class="quiz-progress-label"><span id="qp-text">' + answeredCount + ' of ' + set.quiz.length + ' answered</span><span>Practice Quiz</span></div>' +
+        '<div class="quiz-progress-track"><div class="quiz-progress-fill" id="qp-fill" style="width:' + Math.round(answeredCount/set.quiz.length*100) + '%;"></div></div>' +
+      '</div>' +
       set.quiz.map((q, i) => renderQuizQuestionInput(q, i, sess.answers[i])).join('') +
       '<div style="margin-top:var(--sp-6);">' +
         '<button class="btn btn-primary" id="submit-quiz">Submit quiz</button>' +
@@ -1127,13 +1420,14 @@ function renderQuizQuestionsReview(sess){
     const res = sess.gradedResults[i] || { correct: false, feedback: '' };
     const tagClass = res.correct ? 'correct' : 'incorrect';
     const tagText = res.correct ? 'CORRECT' : 'INCORRECT';
+    const explanation = res.feedback || q.explanation || '';
     return (
       '<div class="qcard">' +
-        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; <span class="result-tag ' + tagClass + '">' + tagText + '</span></div>' +
+        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; <span class="result-tag ' + tagClass + '">' + tagText + '</span>' + (q.topic ? ' &bull; ' + esc(q.topic) : '') + '</div>' +
         '<div class="qtext">' + esc(q.question) + '</div>' +
         '<div style="font-size:13.5px; margin-bottom:4px;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
         (!res.correct ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + '</strong></div>' : '') +
-        (res.feedback ? '<div class="feedback-line">' + esc(res.feedback) + '</div>' : '') +
+        (explanation ? '<div class="feedback-line">' + esc(explanation) + '</div>' : '') +
       '</div>'
     );
   }).join('');
@@ -1206,6 +1500,9 @@ function renderTestQuestionsReview(sess){
         '<div class="qtext">' + esc(q.question) + '</div>' +
         '<div style="font-size:13.5px; margin-bottom:6px; white-space:pre-wrap;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
         (res.feedback ? '<div class="feedback-line">' + esc(res.feedback) + '</div>' : '') +
+        (q.rubric ? (
+          '<details class="rubric-reveal"><summary>Show grading rubric</summary><div class="rubric-body">' + esc(q.rubric) + '</div></details>'
+        ) : '') +
       '</div>'
     );
   }).join('');
@@ -1285,6 +1582,17 @@ function initHistoryChart(history){
       }
     }
   });
+}
+
+function updateQuizProgressBar(){
+  const sess = S.quizSession;
+  if(!sess || sess.submitted) return;
+  const total = sess.total;
+  const answered = Object.keys(sess.answers).filter(k => (sess.answers[k]||'').toString().trim() !== '').length;
+  const fill = document.getElementById('qp-fill');
+  const text = document.getElementById('qp-text');
+  if(fill) fill.style.width = Math.round(answered/total*100) + '%';
+  if(text) text.textContent = answered + ' of ' + total + ' answered';
 }
 
 function bindEvents(){
@@ -1473,12 +1781,22 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     };
   }
 
+  const setLanguageSelect = document.getElementById('set-language');
+  const setLanguageOther = document.getElementById('set-language-other');
+  if(setLanguageSelect && setLanguageOther){
+    setLanguageSelect.onchange = () => {
+      setLanguageOther.style.display = setLanguageSelect.value === 'other' ? 'block' : 'none';
+    };
+  }
+
   const settingsSave = document.getElementById('settings-save');
   if(settingsSave){
     settingsSave.onclick = async () => {
       const name = document.getElementById('set-name').value.trim();
       const model = document.getElementById('set-model').value;
-      const language = document.getElementById('set-language').value;
+      const langSelect = document.getElementById('set-language').value;
+      const langOther = document.getElementById('set-language-other')?.value.trim();
+      const language = langSelect === 'other' && langOther ? langOther.toLowerCase() : langSelect;
       const apiKey = document.getElementById('set-apikey').value.trim();
 
       if(!name){ alert('Name cannot be blank.'); return; }
@@ -1551,6 +1869,10 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       S.currentTab = 'notes';
       S.quizSession = null;
       S.testSession = null;
+      S.notesMode = 'grid';
+      S.flashcardIdx = 0;
+      S.flashcardFlipped = false;
+      S.flashcardDone = [];
       S.route = 'set';
       render();
     };
@@ -1642,6 +1964,10 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         S.currentSetId = newSet.id;
         S.currentTab = 'notes';
         S.route = 'set';
+
+        if(S._insufficientMaterialWarning){
+          setTimeout(() => alert('Heads up: your source notes looked thin for a set of ' + count + ' questions. The AI did its best, but consider pasting more detail or attaching more pages for stronger, more specific questions.'), 50);
+        }
       }catch(e){
         alert('Generation failed: ' + e.message);
       }finally{
@@ -1657,6 +1983,65 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       render();
     };
   });
+
+  document.querySelectorAll('[data-notes-mode]').forEach(el => {
+    el.onclick = (e) => {
+      S.notesMode = e.currentTarget.getAttribute('data-notes-mode');
+      S.flashcardIdx = 0;
+      S.flashcardFlipped = false;
+      render();
+    };
+  });
+
+  const fcCard = document.getElementById('fc-card');
+  if(fcCard){
+    fcCard.onclick = () => {
+      S.flashcardFlipped = !S.flashcardFlipped;
+      render();
+    };
+  }
+  const fcPrev = document.getElementById('fc-prev');
+  if(fcPrev){
+    fcPrev.onclick = () => {
+      S.flashcardIdx = Math.max(0, (S.flashcardIdx||0) - 1);
+      S.flashcardFlipped = false;
+      render();
+    };
+  }
+  const fcNext = document.getElementById('fc-next');
+  if(fcNext){
+    fcNext.onclick = () => {
+      S.flashcardIdx = (S.flashcardIdx||0) + 1;
+      S.flashcardFlipped = false;
+      render();
+    };
+  }
+  const fcGot = document.getElementById('fc-got');
+  if(fcGot){
+    fcGot.onclick = () => {
+      if(!S.flashcardDone) S.flashcardDone = [];
+      S.flashcardDone[S.flashcardIdx||0] = 'got';
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      if(set && (S.flashcardIdx||0) < set.stickyNotes.length - 1){
+        S.flashcardIdx = (S.flashcardIdx||0) + 1;
+        S.flashcardFlipped = false;
+      }
+      render();
+    };
+  }
+  const fcReview = document.getElementById('fc-review');
+  if(fcReview){
+    fcReview.onclick = () => {
+      if(!S.flashcardDone) S.flashcardDone = [];
+      S.flashcardDone[S.flashcardIdx||0] = 'review';
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      if(set && (S.flashcardIdx||0) < set.stickyNotes.length - 1){
+        S.flashcardIdx = (S.flashcardIdx||0) + 1;
+        S.flashcardFlipped = false;
+      }
+      render();
+    };
+  }
 
   const startQuizBtn = document.getElementById('start-quiz');
   if(startQuizBtn){
@@ -1695,6 +2080,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       const name = e.target.name;
       const qidx = parseInt(name.replace('q_',''));
       if(S.quizSession) S.quizSession.answers[qidx] = e.target.value;
+      updateQuizProgressBar();
     };
   });
 
@@ -1702,8 +2088,40 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     el.oninput = (e) => {
       const qidx = parseInt(e.target.getAttribute('data-qidx'));
       if(S.quizSession) S.quizSession.answers[qidx] = e.target.value;
+      updateQuizProgressBar();
     };
   });
+
+  const adaptiveQuizBtn = document.getElementById('adaptive-quiz');
+  if(adaptiveQuizBtn){
+    adaptiveQuizBtn.onclick = async () => {
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      const types = Array.from(new Set(set.quiz.map(q=>q.type)));
+      S.loading = true;
+      S.loadingMsg = 'Generating formal test...'; // reuse "setting exam" style flavor bank via similar wording
+      S.loadingMsg = 'Reading materials & generating study set...';
+      render();
+      try{
+        const recentScores = getRecentScores(set, 3);
+        const newQuiz = await generateQuizOnly({
+          title: set.title,
+          notesSummary: set.notesSummary,
+          level: S.profile.level,
+          count: set.quiz.length,
+          types,
+          recentScores
+        });
+        set.quiz = newQuiz;
+        await saveStudySet(set);
+        S.quizSession = null;
+      }catch(e){
+        alert('Could not generate a new adaptive quiz: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
 
   const submitQuizBtn = document.getElementById('submit-quiz');
   if(submitQuizBtn){
@@ -1740,7 +2158,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
             if(g.correct) score++;
           } else {
             const correct = userAns.toLowerCase() === q.answer.toLowerCase();
-            gradedResults[i] = { correct, feedback: correct ? 'Correct.' : 'Expected: ' + q.answer };
+            gradedResults[i] = { correct, feedback: q.explanation || (correct ? 'Correct.' : 'Expected: ' + q.answer) };
             if(correct) score++;
           }
         });
