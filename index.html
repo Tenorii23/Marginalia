@@ -269,7 +269,24 @@
   .rubric-reveal summary::-webkit-details-marker{ display:none; }
   .rubric-reveal summary::before{ content:'▶'; font-size:9px; transition: transform 0.2s; }
   details[open] .rubric-reveal summary::before{ transform: rotate(90deg); }
-  .rubric-reveal .rubric-body{ margin-top:var(--sp-2); font-size:12.5px; color:var(--ink-soft); line-height:1.55; padding: var(--sp-3); border:1px solid var(--rule-strong); background:var(--paper-raised); }
+  /* ── Stats page ── */
+  .stats-select-panel{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-4); margin-bottom: var(--sp-5); }
+  .stats-select-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--sp-3); }
+  .stats-select-head h4{ font-family:var(--font-serif); font-size:14px; font-weight:600; }
+  .stats-select-actions{ display:flex; gap: var(--sp-3); }
+  .stats-select-actions button{ background:none; border:none; color:var(--navy); font-size:12px; text-decoration:underline; cursor:pointer; padding:0; }
+  .stats-set-list{ display:flex; flex-wrap:wrap; gap: var(--sp-2); }
+  .stats-set-chip{ display:flex; align-items:center; gap:6px; border:1px solid var(--rule-strong); padding: 6px 10px; cursor:pointer; font-size:12.5px; background:var(--paper); }
+  .stats-set-chip.selected{ border-color:var(--navy); background: var(--paper-deep); }
+  .stats-set-chip .chip-cat{ font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); border-left:1px solid var(--rule); padding-left:6px; margin-left:2px; }
+  .stats-cards{ display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: var(--sp-3); margin-bottom: var(--sp-6); }
+  .stats-card{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-4); text-align:center; }
+  .stats-card .num{ font-family:var(--font-mono); font-size:26px; color:var(--oxblood); display:block; margin-bottom:4px; }
+  .stats-card .lbl{ font-size:11.5px; color:var(--ink-faint); letter-spacing:0.3px; }
+  .stats-chart-block{ margin-bottom: var(--sp-6); }
+  .stats-chart-block h4{ font-family:var(--font-serif); font-size:14.5px; margin-bottom: var(--sp-3); }
+  .stats-chart-wrap{ position:relative; height:260px; }
+  .stats-empty{ padding: var(--sp-6); text-align:center; color:var(--ink-faint); border:1px dashed var(--rule-strong); }
 </style>
 </head>
 <body>
@@ -304,7 +321,9 @@ const S = {
   flashcardFlipped: false,
   flashcardDone: [],   // 'got' | 'review'
   // current tab sub-mode: 'grid' | 'flashcards'
-  notesMode: 'grid'
+  notesMode: 'grid',
+  // stats page: which study set ids are included
+  statsSelectedSetIds: null
 };
 const PRESET_API_KEYS = [
   'AQ.Ab8RN6JSEwHOge-XP7-dbrOBOCbbQlabvPwgbst0u1E0N494_g',
@@ -420,6 +439,7 @@ async function loadAll(){
           id: s.id,
           title: s.title,
           notesSummary: s.notes_summary,
+          category: s.category || 'General',
           createdAt: new Date(s.created_at).getTime(),
           updatedAt: new Date(s.updated_at).getTime(),
           stickyNotes: snRes.data || [],
@@ -436,6 +456,7 @@ async function loadAll(){
     }
 
     S.studySets = sets;
+    if(!S.statsSelectedSetIds) S.statsSelectedSetIds = sets.map(s=>s.id);
     S.route = 'dashboard';
     
     if(sets.length === 0){
@@ -472,6 +493,7 @@ async function checkAndRunLocalStorageMigration(userId){
           user_id: userId,
           title: setObj.title,
           notes_summary: setObj.notesSummary,
+          category: setObj.category || 'General',
           created_at: new Date(setObj.createdAt || Date.now()).toISOString(),
           updated_at: new Date(setObj.updatedAt || Date.now()).toISOString()
         });
@@ -531,6 +553,7 @@ async function saveStudySet(set){
     user_id: userId,
     title: set.title,
     notes_summary: set.notesSummary,
+    category: set.category || 'General',
     created_at: new Date(set.createdAt || Date.now()).toISOString(),
     updated_at: new Date(set.updatedAt).toISOString()
   });
@@ -776,9 +799,12 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
     '',
     'First assess whether there is enough source material to generate ' + count + ' meaningful questions. Set "sufficientMaterial" to false if notes are too sparse (under ~100 words and no files), otherwise true.',
     '',
+    'Also classify the academic subject this material belongs to, based on its content (e.g. if it looks like chemistry notes, classify it as Chemistry). Use a short, human-friendly subject name.',
+    '',
     'Produce a JSON object with exactly these fields:',
     '{',
     '  "sufficientMaterial": boolean,',
+    '  "category": string,  // short academic subject classification, e.g. "Chemistry", "World History", "Calculus", "Spanish", "Biology", "Computer Science" — pick the single best-fitting subject, use "General" only if genuinely unclear',
     '  "notesSummary": string,  // clear, consolidated plain-text write-up, thorough enough to write a test from, no markup, 300-900 words',
     '  "stickyNotes": [ { "title": string, "body": string } ],  // 6-12 revision notes, each title is a concept name, body is 1-3 sentences for an index card',
     '  "quiz": [',
@@ -905,9 +931,8 @@ function render(){
   root.innerHTML = html;
   bindEvents();
 
-  if(S.route === 'set' && S.currentTab === 'history'){
-    const set = S.studySets.find(s=>s.id===S.currentSetId);
-    if(set) initHistoryChart(set.history);
+  if(S.route === 'stats'){
+    initStatsCharts();
   }
 }
 
@@ -944,6 +969,7 @@ function renderRoute(){
     case 'newset': return renderNewSet();
     case 'set': return renderSet();
     case 'settings': return renderSettings();
+    case 'stats': return renderStatsPage();
     default: return '';
   }
 }
@@ -979,6 +1005,7 @@ function renderTopbar(){
       '<div class="topnav">' +
         '<span class="level-badge">' + level + '</span>' +
         '<button class="linklike" data-nav="dashboard">Study sets</button>' +
+        '<button class="linklike" data-nav="stats">Stats</button>' +
         '<button class="linklike" data-nav="settings">Settings</button>' +
         '<button class="linklike" id="btn-dark-mode">' + (S.darkMode ? 'Light Mode' : 'Dark Mode') + '</button>' +
         '<button class="linklike" id="btn-logout">Log out</button>' +
@@ -1176,6 +1203,271 @@ function renderDashboard(){
   );
 }
 
+// ═══════════════════════ STATS PAGE ═══════════════════════
+
+function computeStatsData(){
+  const allIds = S.statsSelectedSetIds || S.studySets.map(s=>s.id);
+  const selectedSets = S.studySets.filter(s => allIds.includes(s.id));
+  const entries = [];
+  selectedSets.forEach(set => {
+    (set.history || []).forEach(h => {
+      entries.push({
+        setId: set.id,
+        setTitle: set.title,
+        category: set.category || 'General',
+        type: h.type,
+        pct: h.pct,
+        letter: h.letter,
+        scoreText: h.scoreText,
+        timestamp: h.timestamp
+      });
+    });
+  });
+  entries.sort((a,b) => a.timestamp - b.timestamp);
+  return { selectedSets, entries };
+}
+
+function renderStatsPage(){
+  if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
+  const { selectedSets, entries } = computeStatsData();
+  const chartUnavailable = typeof Chart === 'undefined';
+
+  const selectorHtml = (
+    '<div class="stats-select-panel">' +
+      '<div class="stats-select-head">' +
+        '<h4>Choose which study sets to include</h4>' +
+        '<div class="stats-select-actions">' +
+          '<button type="button" id="stats-select-all">Select all</button>' +
+          '<button type="button" id="stats-select-none">Clear</button>' +
+        '</div>' +
+      '</div>' +
+      (S.studySets.length === 0 ?
+        '<div class="muted" style="font-size:13px;">No study sets yet.</div>' :
+        '<div class="stats-set-list">' +
+          S.studySets.map(s => {
+            const isSel = S.statsSelectedSetIds.includes(s.id);
+            return (
+              '<div class="stats-set-chip ' + (isSel?'selected':'') + '" data-stats-toggle="' + s.id + '">' +
+                '<input type="checkbox" ' + (isSel?'checked':'') + ' style="pointer-events:none;" />' +
+                '<span>' + esc(s.title) + '</span>' +
+                '<span class="chip-cat">' + esc(s.category || 'General') + '</span>' +
+              '</div>'
+            );
+          }).join('') +
+        '</div>'
+      ) +
+    '</div>'
+  );
+
+  if(entries.length === 0){
+    return (
+      '<div class="section-heading"><h2>Stats</h2></div>' +
+      selectorHtml +
+      '<div class="stats-empty">No quiz or test attempts yet for the selected study sets. Take a practice quiz or formal test to start building stats.</div>'
+    );
+  }
+
+  if(chartUnavailable){
+    return (
+      '<div class="section-heading"><h2>Stats</h2></div>' +
+      selectorHtml +
+      '<div class="stats-empty">Stats are available, but the chart library could not load. Check your internet connection and refresh the page to restore the visual graphs.</div>' +
+      '<div class="ledger">' +
+        entries.slice().reverse().slice(0, 100).map(e => (
+          '<div class="ledger-row">' +
+            '<div>' +
+              '<div><span class="hist-type">' + e.type.toUpperCase() + '</span> ' + esc(e.setTitle) + ' <span class="chip-cat" style="border:none; padding-left:0;">' + esc(e.category) + '</span></div>' +
+              '<div class="ledger-meta"><span>' + new Date(e.timestamp).toLocaleString() + '</span><span>Grade: <strong>' + esc(e.letter) + '</strong></span></div>' +
+            '</div>' +
+            '<div class="hist-score"><span class="num">' + e.scoreText + '</span> (' + e.pct + '%)</div>' +
+          '</div>'
+        )).join('') +
+      '</div>' +
+    '</div>'
+    );
+  }
+
+  const totalAttempts = entries.length;
+  const overallAvg = Math.round(entries.reduce((a,e)=>a+e.pct,0) / totalAttempts);
+  const quizEntries = entries.filter(e=>e.type==='quiz');
+  const testEntries = entries.filter(e=>e.type==='test');
+  const quizAvg = quizEntries.length ? Math.round(quizEntries.reduce((a,e)=>a+e.pct,0)/quizEntries.length) : null;
+  const testAvg = testEntries.length ? Math.round(testEntries.reduce((a,e)=>a+e.pct,0)/testEntries.length) : null;
+
+  // Category averages
+  const catMap = {};
+  entries.forEach(e => {
+    if(!catMap[e.category]) catMap[e.category] = { sum:0, count:0 };
+    catMap[e.category].sum += e.pct;
+    catMap[e.category].count++;
+  });
+  const catStats = Object.entries(catMap).map(([cat,v]) => ({ cat, avg: Math.round(v.sum/v.count), count: v.count })).sort((a,b)=>b.avg-a.avg);
+  const bestCat = catStats[0];
+  const worstCat = catStats[catStats.length-1];
+
+  return (
+    '<div class="section-heading"><h2>Stats</h2></div>' +
+    selectorHtml +
+    renderStreakBar(entries.map(e => ({ timestamp: e.timestamp }))) +
+    '<div class="stats-cards">' +
+      '<div class="stats-card"><span class="num">' + totalAttempts + '</span><span class="lbl">TOTAL ATTEMPTS</span></div>' +
+      '<div class="stats-card"><span class="num">' + overallAvg + '%</span><span class="lbl">OVERALL AVERAGE</span></div>' +
+      '<div class="stats-card"><span class="num">' + quizEntries.length + '</span><span class="lbl">QUIZZES TAKEN</span></div>' +
+      '<div class="stats-card"><span class="num">' + testEntries.length + '</span><span class="lbl">TESTS TAKEN</span></div>' +
+      (bestCat ? '<div class="stats-card"><span class="num" style="font-size:16px; color:var(--green);">' + esc(bestCat.cat) + '</span><span class="lbl">STRONGEST SUBJECT (' + bestCat.avg + '%)</span></div>' : '') +
+      (worstCat && worstCat !== bestCat ? '<div class="stats-card"><span class="num" style="font-size:16px; color:var(--oxblood);">' + esc(worstCat.cat) + '</span><span class="lbl">WEAKEST SUBJECT (' + worstCat.avg + '%)</span></div>' : '') +
+    '</div>' +
+
+    '<div class="stats-chart-block">' +
+      '<h4>Score Trend Over Time</h4>' +
+      '<div class="stats-chart-wrap"><canvas id="stats-trend-chart"></canvas></div>' +
+    '</div>' +
+
+    '<div class="stats-chart-block">' +
+      '<h4>Average Score by Subject</h4>' +
+      '<div class="stats-chart-wrap"><canvas id="stats-subject-chart"></canvas></div>' +
+    '</div>' +
+
+    '<div class="stats-chart-block">' +
+      '<h4>Average Score by Study Set</h4>' +
+      '<div class="stats-chart-wrap"><canvas id="stats-set-chart"></canvas></div>' +
+    '</div>' +
+
+    (quizEntries.length && testEntries.length ? (
+      '<div class="stats-chart-block">' +
+        '<h4>Quizzes vs. Formal Tests</h4>' +
+        '<div class="stats-chart-wrap" style="height:200px;"><canvas id="stats-type-chart"></canvas></div>' +
+      '</div>'
+    ) : '') +
+
+    '<div class="stats-chart-block">' +
+      '<h4>All Attempts</h4>' +
+      '<div class="ledger">' +
+        entries.slice().reverse().slice(0, 100).map(e => (
+          '<div class="ledger-row">' +
+            '<div>' +
+              '<div><span class="hist-type">' + e.type.toUpperCase() + '</span> ' + esc(e.setTitle) + ' <span class="chip-cat" style="border:none; padding-left:0;">' + esc(e.category) + '</span></div>' +
+              '<div class="ledger-meta"><span>' + new Date(e.timestamp).toLocaleString() + '</span><span>Grade: <strong>' + esc(e.letter) + '</strong></span></div>' +
+            '</div>' +
+            '<div class="hist-score"><span class="num">' + e.scoreText + '</span> (' + e.pct + '%)</div>' +
+          '</div>'
+        )).join('') +
+      '</div>' +
+    '</div>'
+  );
+}
+
+const statsCharts = { trend: null, subject: null, set: null, type: null };
+function destroyStatsCharts(){
+  Object.keys(statsCharts).forEach(k => { if(statsCharts[k]){ statsCharts[k].destroy(); statsCharts[k] = null; } });
+}
+
+function initStatsCharts(){
+  if(typeof Chart === 'undefined') return;
+  destroyStatsCharts();
+  const { entries } = computeStatsData();
+  if(!entries.length) return;
+  const c = getChartColors();
+
+  const trendCanvas = document.getElementById('stats-trend-chart');
+  if(trendCanvas){
+    statsCharts.trend = new Chart(trendCanvas, {
+      type: 'line',
+      data: {
+        labels: entries.map((e,i) => '#' + (i+1) + ' ' + e.type.slice(0,1).toUpperCase()),
+        datasets: [{
+          label: 'Score %',
+          data: entries.map(e=>e.pct),
+          borderColor: c.oxblood,
+          backgroundColor: c.oxbloodBg,
+          fill: true,
+          tension: 0.25,
+          pointRadius: 3
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          y: { min:0, max:100, ticks:{ stepSize:20, color:c.text }, grid:{ color:c.grid } },
+          x: { ticks:{ color:c.text }, grid:{ color:c.grid } }
+        },
+        plugins: { legend: { labels: { color: c.text } } }
+      }
+    });
+  }
+
+  const catMap = {};
+  entries.forEach(e => { if(!catMap[e.category]) catMap[e.category] = { sum:0, count:0 }; catMap[e.category].sum += e.pct; catMap[e.category].count++; });
+  const catEntries = Object.entries(catMap).map(([cat,v]) => ({ cat, avg: Math.round(v.sum/v.count) }));
+  const subjectCanvas = document.getElementById('stats-subject-chart');
+  if(subjectCanvas){
+    statsCharts.subject = new Chart(subjectCanvas, {
+      type: 'bar',
+      data: {
+        labels: catEntries.map(e=>e.cat),
+        datasets: [{ label: 'Avg %', data: catEntries.map(e=>e.avg), backgroundColor: c.palette }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          y: { min:0, max:100, ticks:{ stepSize:20, color:c.text }, grid:{ color:c.grid } },
+          x: { ticks:{ color:c.text }, grid:{ display:false } }
+        },
+        plugins: { legend: { display:false } }
+      }
+    });
+  }
+
+  const setMap = {};
+  entries.forEach(e => { if(!setMap[e.setTitle]) setMap[e.setTitle] = { sum:0, count:0 }; setMap[e.setTitle].sum += e.pct; setMap[e.setTitle].count++; });
+  const setEntries = Object.entries(setMap).map(([title,v]) => ({ title, avg: Math.round(v.sum/v.count) }));
+  const setCanvas = document.getElementById('stats-set-chart');
+  if(setCanvas){
+    statsCharts.set = new Chart(setCanvas, {
+      type: 'bar',
+      data: {
+        labels: setEntries.map(e=>e.title),
+        datasets: [{ label: 'Avg %', data: setEntries.map(e=>e.avg), backgroundColor: c.navy }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { min:0, max:100, ticks:{ stepSize:20, color:c.text }, grid:{ color:c.grid } },
+          y: { ticks:{ color:c.text }, grid:{ display:false } }
+        },
+        plugins: { legend: { display:false } }
+      }
+    });
+  }
+
+  const quizEntries = entries.filter(e=>e.type==='quiz');
+  const testEntries = entries.filter(e=>e.type==='test');
+  const typeCanvas = document.getElementById('stats-type-chart');
+  if(typeCanvas && quizEntries.length && testEntries.length){
+    const quizAvg = Math.round(quizEntries.reduce((a,e)=>a+e.pct,0)/quizEntries.length);
+    const testAvg = Math.round(testEntries.reduce((a,e)=>a+e.pct,0)/testEntries.length);
+    statsCharts.type = new Chart(typeCanvas, {
+      type: 'bar',
+      data: {
+        labels: ['Practice Quizzes', 'Formal Tests'],
+        datasets: [
+          { label: 'Average %', data: [quizAvg, testAvg], backgroundColor: [c.green, c.amber] },
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { min:0, max:100, ticks:{ stepSize:20, color:c.text }, grid:{ color:c.grid } },
+          y: { ticks:{ color:c.text }, grid:{ display:false } }
+        },
+        plugins: { legend: { display:false } }
+      }
+    });
+  }
+}
+
 function renderNewSet(){
   const d = S.newSet || { title:'', notesText:'', files:[], level: S.profile?.level||'college', count: 10, types:['multiple_choice','true_false','short_answer','fill_blank'] };
   S.newSet = d;
@@ -1248,7 +1540,6 @@ function renderSet(){
         '<button class="tab ' + (tab==='notes'?'active':'') + '" data-set-tab="notes">Notes & Sticky Notes</button>' +
         '<button class="tab ' + (tab==='quiz'?'active':'') + '" data-set-tab="quiz">Practice Quiz</button>' +
         '<button class="tab ' + (tab==='test'?'active':'') + '" data-set-tab="test">Formal Test</button>' +
-        '<button class="tab ' + (tab==='history'?'active':'') + '" data-set-tab="history">History & Stats</button>' +
       '</div>' +
       renderSetTabContent(set, tab) +
     '</div>'
@@ -1260,7 +1551,6 @@ function renderSetTabContent(set, tab){
     case 'notes': return renderTabNotes(set);
     case 'quiz': return renderTabQuiz(set);
     case 'test': return renderTabTest(set);
-    case 'history': return renderTabHistory(set);
     default: return '';
   }
 }
@@ -1508,80 +1798,20 @@ function renderTestQuestionsReview(sess){
   }).join('');
 }
 
-function renderTabHistory(set){
-  const history = set.history || [];
-  return (
-    '<div>' +
-      '<h3 style="margin-bottom:var(--sp-3)">Performance History</h3>' +
-      '<canvas id="stats-chart"></canvas>' +
-      '<div class="ledger">' +
-        (history.length === 0 ? 
-          '<div class="ledger-empty">No practice quizzes or tests taken yet for this set.</div>' :
-          history.slice().reverse().map(h => (
-            '<div class="ledger-row">' +
-              '<div>' +
-                '<div><span class="hist-type">' + h.type.toUpperCase() + '</span> ' + new Date(h.timestamp).toLocaleString() + '</div>' +
-                '<div class="ledger-meta"><span>Grade: <strong>' + esc(h.letter) + '</strong></span></div>' +
-              '</div>' +
-              '<div class="hist-score"><span class="num">' + h.scoreText + '</span> (' + h.pct + '%)</div>' +
-            '</div>'
-          )).join('')
-        ) +
-      '</div>' +
-    '</div>'
-  );
-}
-
-let chartInstance = null;
-function initHistoryChart(history){
-  const canvas = document.getElementById('stats-chart');
-  if(!canvas) return;
-  if(chartInstance){ chartInstance.destroy(); chartInstance = null; }
-  if(!history || !history.length){ canvas.style.display = 'none'; return; }
-  canvas.style.display = 'block';
-  
-  const labels = history.map((h, i) => '#' + (i+1) + ' (' + h.type.slice(0,1).toUpperCase() + ')');
-  const data = history.map(h => h.pct);
-  
+function getChartColors(){
   const isDark = S.darkMode;
-  const textColor = isDark ? '#A0A0A0' : '#55564E';
-  const gridColor = isDark ? '#333333' : '#C9C4B4';
-  const borderColor = isDark ? '#FF6B6B' : '#7A1F2B';
-  const bgColor = isDark ? 'rgba(255,107,107,0.1)' : 'rgba(122,31,43,0.1)';
-
-  chartInstance = new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Score %',
-        data,
-        borderColor: borderColor,
-        backgroundColor: bgColor,
-        fill: true,
-        tension: 0.2
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        y: { 
-          min: 0, 
-          max: 100, 
-          ticks: { stepSize: 20, color: textColor },
-          grid: { color: gridColor }
-        },
-        x: {
-          ticks: { color: textColor },
-          grid: { color: gridColor }
-        }
-      },
-      plugins: {
-        legend: { labels: { color: textColor } }
-      }
-    }
-  });
+  return {
+    text: isDark ? '#A0A0A0' : '#55564E',
+    grid: isDark ? '#333333' : '#C9C4B4',
+    oxblood: isDark ? '#FF6B6B' : '#7A1F2B',
+    oxbloodBg: isDark ? 'rgba(255,107,107,0.1)' : 'rgba(122,31,43,0.1)',
+    navy: isDark ? '#4DABF7' : '#2C3B4C',
+    green: isDark ? '#51CF66' : '#3F6B44',
+    amber: isDark ? '#FCC419' : '#8A6416',
+    palette: isDark
+      ? ['#FF6B6B','#4DABF7','#51CF66','#FCC419','#DA77F2','#66D9E8']
+      : ['#7A1F2B','#2C3B4C','#3F6B44','#8A6416','#6B3FA0','#1F6B78']
+  };
 }
 
 function updateQuizProgressBar(){
@@ -1672,12 +1902,37 @@ function bindEvents(){
     };
   });
 
+  document.querySelectorAll('[data-stats-toggle]').forEach(el => {
+    el.onclick = (e) => {
+      const id = e.currentTarget.getAttribute('data-stats-toggle');
+      if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
+      if(S.statsSelectedSetIds.includes(id)){
+        S.statsSelectedSetIds = S.statsSelectedSetIds.filter(x=>x!==id);
+      } else {
+        S.statsSelectedSetIds.push(id);
+      }
+      render();
+    };
+  });
+  const statsSelectAll = document.getElementById('stats-select-all');
+  if(statsSelectAll){
+    statsSelectAll.onclick = () => { S.statsSelectedSetIds = S.studySets.map(s=>s.id); render(); };
+  }
+  const statsSelectNone = document.getElementById('stats-select-none');
+  if(statsSelectNone){
+    statsSelectNone.onclick = () => { S.statsSelectedSetIds = []; render(); };
+  }
+
   document.querySelectorAll('[data-nav]').forEach(el => {
     el.onclick = (e) => {
       const target = e.currentTarget.getAttribute('data-nav');
       if(target === 'dashboard'){ S.route = 'dashboard'; S.currentSetId = null; }
       else if(target === 'settings'){ S.route = 'settings'; }
       else if(target === 'newset'){ S.route = 'newset'; S.newSet = null; }
+      else if(target === 'stats'){
+        S.route = 'stats';
+        if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
+      }
       render();
     };
   });
@@ -1955,6 +2210,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           createdAt: Date.now(),
           updatedAt: Date.now(),
           notesSummary: result.notesSummary,
+          category: result.category || 'General',
           stickyNotes: result.stickyNotes,
           quiz: result.quiz,
           history: []
@@ -1964,6 +2220,8 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         S.currentSetId = newSet.id;
         S.currentTab = 'notes';
         S.route = 'set';
+        if(!S.statsSelectedSetIds) S.statsSelectedSetIds = [];
+        S.statsSelectedSetIds.push(newSet.id);
 
         if(S._insufficientMaterialWarning){
           setTimeout(() => alert('Heads up: your source notes looked thin for a set of ' + count + ' questions. The AI did its best, but consider pasting more detail or attaching more pages for stronger, more specific questions.'), 50);
