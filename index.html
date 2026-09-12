@@ -1363,9 +1363,18 @@ function renderOnboarding(){
       '<p class="onboard-sub">' + (isLogin ? 'Log in to your Supabase-synced account to access your study sets.' : 'Create your account and connect to Supabase to sync your notes across devices.') + '</p>' +
 
       '<div class="field">' +
-        '<label class="field-label">Username / Name</label>' +
+        '<label class="field-label">' + (isLogin ? 'Username or Email' : 'Username') + '</label>' +
         '<input type="text" id="auth-name" value="' + esc(draft.name) + '" placeholder="e.g. Ardit" />' +
+        (isLogin ? '<div class="field-hint">If you signed up with a real email, log in with that email. Otherwise use your username.</div>' : '') +
       '</div>' +
+
+      (!isLogin ? (
+        '<div class="field">' +
+          '<label class="field-label">Email <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+          '<input type="text" id="auth-email-optional" value="' + esc(draft.email||'') + '" placeholder="you@example.com" />' +
+          '<div class="field-hint">Leave blank and we\'ll generate an internal address from your username. Add a real email if you want password recovery or to log in with it directly.</div>' +
+        '</div>'
+      ) : '') +
 
       '<div class="field">' +
         '<label class="field-label">Password</label>' +
@@ -2627,7 +2636,29 @@ function bindEvents(){
         return;
       }
 
-      const email = nameInput.toLowerCase().replace(/[^a-z0-9]/g, '') + '@marginalia.app';
+      const generatedEmail = nameInput.toLowerCase().replace(/[^a-z0-9]/g, '') + '@marginalia.app';
+      let email;
+      if(S.authMode === 'signup'){
+        const emailInput = document.getElementById('auth-email-optional')?.value.trim() || '';
+        if(!S._onboardDraft) S._onboardDraft = { name:'', password:'', level:'college' };
+        S._onboardDraft.email = emailInput;
+        if(emailInput){
+          const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput);
+          if(!validEmail){
+            S._authError = 'That email address doesn\'t look valid. Fix it or leave the field blank.';
+            render();
+            return;
+          }
+          email = emailInput;
+        } else {
+          email = generatedEmail;
+        }
+      } else {
+        // Login: if what was typed looks like an email, use it as-is (accounts signed up
+        // with a real email); otherwise fall back to the existing username@marginalia.app
+        // derivation so all existing users keep logging in exactly as before.
+        email = nameInput.includes('@') ? nameInput : generatedEmail;
+      }
 
       S.loading = true;
       S.loadingMsg = S.authMode === 'signup' ? 'Creating Supabase account...' : 'Logging into Supabase...';
