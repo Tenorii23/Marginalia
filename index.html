@@ -241,12 +241,13 @@
   .quiz-progress-fill{ height:3px; background:var(--oxblood); transition: width 0.3s ease; }
 
   /* ── Streak / activity on dashboard ── */
-  .streak-bar{ display:flex; align-items:center; gap: var(--sp-3); padding: var(--sp-3) 0 var(--sp-4); margin-bottom: var(--sp-4); border-bottom: 1px solid var(--rule); }
+  .streak-section{ margin-bottom: var(--sp-6); }
+  .streak-bar{ display:flex; align-items:center; gap: var(--sp-3); padding: var(--sp-3) 0 var(--sp-4); margin-bottom: var(--sp-3); border-bottom: 1px solid var(--rule); }
   .streak-flame{ font-size:20px; }
   .streak-count{ font-family: var(--font-mono); font-size:22px; font-weight:500; color: var(--amber); }
   .streak-label{ font-size:12.5px; color: var(--ink-faint); }
-  .activity-heatmap{ display:flex; gap:3px; flex-wrap:wrap; margin-top: var(--sp-2); }
-  .hm-cell{ width:13px; height:13px; background: var(--paper-raised); border:1px solid var(--rule); }
+  .activity-heatmap{ display:flex; gap:4px; flex-wrap:wrap; margin-top: var(--sp-2); }
+  .hm-cell{ width:12px; height:12px; background: var(--paper-raised); border:1px solid var(--rule); flex-shrink:0; }
   .hm-cell.active-1{ background: var(--amber-wash); border-color: var(--amber); }
   .hm-cell.active-2{ background: #d4a84b; border-color: var(--amber); }
   .hm-cell.active-3{ background: var(--amber); border-color: var(--amber-dark,#6b4d12); }
@@ -288,6 +289,32 @@
   .stats-chart-wrap{ position:relative; height:260px; }
   .stats-empty{ padding: var(--sp-6); text-align:center; color:var(--ink-faint); border:1px dashed var(--rule-strong); }
 
+  /* ── Cloze deletion (Active Recall Mode) ── */
+  .cloze-blank{ display:inline-block; background: var(--paper-deep); border:1px solid var(--navy); color: var(--navy); font-family: var(--font-mono); font-size: 0.92em; padding: 1px 8px; cursor:pointer; user-select:none; }
+  .cloze-blank.revealed{ background:none; border:none; color: var(--oxblood); font-family: var(--font-serif); padding:0; cursor:default; font-weight:600; }
+
+  /* ── Socratic Tutor Drawer ── */
+  .tutor-scrim{ position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:90; }
+  .tutor-drawer{ position:fixed; top:0; right:0; bottom:0; width:420px; max-width:92vw; background:var(--paper); border-left:1px solid var(--rule-strong); z-index:91; display:flex; flex-direction:column; box-shadow:-4px 0 20px rgba(0,0,0,0.15); }
+  .tutor-head{ padding: var(--sp-4) var(--sp-5); border-bottom:1px solid var(--rule); display:flex; justify-content:space-between; align-items:flex-start; gap: var(--sp-3); }
+  .tutor-head h4{ font-family:var(--font-serif); font-size:15px; margin-bottom:4px; }
+  .tutor-head .qref{ font-size:12px; color:var(--ink-faint); line-height:1.4; }
+  .tutor-close{ background:none; border:none; font-size:20px; line-height:1; cursor:pointer; color:var(--ink-faint); padding:0; }
+  .tutor-quick{ padding: var(--sp-3) var(--sp-5); display:flex; flex-direction:column; gap:6px; border-bottom:1px solid var(--rule); }
+  .tutor-quick button{ text-align:left; background:var(--paper-raised); border:1px solid var(--rule-strong); padding:8px 10px; font-size:12.5px; cursor:pointer; color:var(--ink); }
+  .tutor-quick button:hover{ border-color:var(--navy); }
+  .tutor-messages{ flex:1; overflow-y:auto; padding: var(--sp-4) var(--sp-5); display:flex; flex-direction:column; gap: var(--sp-3); }
+  .tutor-msg{ font-size:13.5px; line-height:1.55; max-width:92%; }
+  .tutor-msg.user{ align-self:flex-end; background:var(--paper-deep); border:1px solid var(--rule-strong); padding:8px 12px; }
+  .tutor-msg.assistant{ align-self:flex-start; padding: 2px 0; color: var(--ink-soft); }
+  .tutor-input-row{ padding: var(--sp-3) var(--sp-5); border-top:1px solid var(--rule); display:flex; gap: var(--sp-2); }
+  .tutor-input-row input{ flex:1; }
+  .tutor-typing{ font-size:12px; color:var(--ink-faint); font-style:italic; }
+
+  /* ── Dashboard quick actions ── */
+  .dash-actions{ display:flex; gap: var(--sp-3); margin-top: var(--sp-2); margin-bottom: var(--sp-6); flex-wrap:wrap; }
+  .due-badge{ display:inline-block; background: var(--paper); color: var(--oxblood); border-radius:10px; padding:1px 7px; font-size:11px; font-family:var(--font-mono); margin-left:6px; }
+
   /* ── Quiz/Test setup panels ── */
   .setup-panel{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-5); margin-bottom: var(--sp-5); }
   .setup-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
@@ -302,6 +329,9 @@
 <div id="root"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 <script type="module">
 import { supabase } from './supabase.js';
 
@@ -332,8 +362,13 @@ const S = {
   // current tab sub-mode: 'grid' | 'flashcards'
   notesMode: 'grid',
   // stats page: which study set ids are included
-  statsSelectedSetIds: null
+  statsSelectedSetIds: null,
+  activeRecallMode: false,
+  tutorDrawer: null,
+  examBuilderSelectedIds: [],
+  comprehensiveSession: null
 };
+
 const PRESET_API_KEYS = [
   'AQ.Ab8RN6JSEwHOge-XP7-dbrOBOCbbQlabvPwgbst0u1E0N494_g',
   'AQ.Ab8RN6Lycttj8QNICVyHO9n6QN6JHR6AaJu1gZ5WWOujxUAWag',
@@ -439,7 +474,7 @@ async function loadAll(){
     if(setsData){
       for(const s of setsData){
         const [snRes, qRes, hRes] = await Promise.all([
-          S.supabaseClient.from('sticky_notes').select('title, body').eq('study_set_id', s.id),
+          S.supabaseClient.from('sticky_notes').select('id, title, body, box_level, next_review').eq('study_set_id', s.id),
           S.supabaseClient.from('quizzes').select('type, question, options, answer, topic, explanation').eq('study_set_id', s.id),
           S.supabaseClient.from('history').select('type, score_text, pct, letter, timestamp').eq('study_set_id', s.id).order('timestamp', { ascending: true })
         ]);
@@ -453,7 +488,13 @@ async function loadAll(){
           testSettings: s.test_settings || null,
           createdAt: new Date(s.created_at).getTime(),
           updatedAt: new Date(s.updated_at).getTime(),
-          stickyNotes: snRes.data || [],
+          stickyNotes: (snRes.data || []).map(sn => ({
+            id: sn.id,
+            title: sn.title,
+            body: sn.body,
+            boxLevel: sn.box_level || 0,
+            nextReview: sn.next_review ? new Date(sn.next_review).getTime() : 0
+          })),
           quiz: qRes.data || [],
           history: (hRes.data || []).map(h => ({
             type: h.type,
@@ -510,7 +551,7 @@ async function checkAndRunLocalStorageMigration(userId){
         });
 
         if(setObj.stickyNotes?.length){
-          const snRows = setObj.stickyNotes.map(sn => ({ study_set_id: setObj.id, title: sn.title, body: sn.body }));
+          const snRows = setObj.stickyNotes.map(sn => ({ study_set_id: setObj.id, title: sn.title, body: sn.body, box_level: sn.boxLevel || 0, next_review: new Date(sn.nextReview || Date.now()).toISOString() }));
           await S.supabaseClient.from('sticky_notes').insert(snRows);
         }
 
@@ -571,7 +612,7 @@ async function saveStudySet(set){
 
   await S.supabaseClient.from('sticky_notes').delete().eq('study_set_id', set.id);
   if(set.stickyNotes?.length){
-    await S.supabaseClient.from('sticky_notes').insert(set.stickyNotes.map(sn => ({ study_set_id: set.id, title: sn.title, body: sn.body })));
+    await S.supabaseClient.from('sticky_notes').insert(set.stickyNotes.map(sn => ({ study_set_id: set.id, title: sn.title, body: sn.body, box_level: sn.boxLevel || 0, next_review: new Date(sn.nextReview || Date.now()).toISOString() })));
   }
 
   await S.supabaseClient.from('quizzes').delete().eq('study_set_id', set.id);
@@ -633,13 +674,15 @@ function renderStreakBar(allHistory){
     cells += '<div class="hm-cell ' + cls + (isToday?' today':'') + '" title="' + d.toLocaleDateString() + (count?' — '+count+' session'+(count>1?'s':''):'') + '"></div>';
   }
   return (
-    '<div class="streak-bar">' +
-      '<span class="streak-flame">🔥</span>' +
-      '<span class="streak-count">' + streak + '</span>' +
-      '<span class="streak-label">day streak</span>' +
-    '</div>' +
-    '<div style="margin-bottom:var(--sp-2); font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono);">Last 10 weeks of activity</div>' +
-    '<div class="activity-heatmap">' + cells + '</div>'
+    '<div class="streak-section">' +
+      '<div class="streak-bar">' +
+        '<span class="streak-flame">🔥</span>' +
+        '<span class="streak-count">' + streak + '</span>' +
+        '<span class="streak-label">day streak</span>' +
+      '</div>' +
+      '<div style="margin-bottom:var(--sp-2); font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono);">Last 10 weeks of activity</div>' +
+      '<div class="activity-heatmap">' + cells + '</div>' +
+    '</div>'
   );
 }
 
@@ -753,6 +796,38 @@ async function callGemini(parts, { jsonSchema=true, _retried=false } = {}){
   }
 }
 
+async function callGeminiChat(messages, { _retried=false } = {}){
+  if(!S.apiKey){ throw new Error('No API key set. Add your Google AI Studio API key in Settings.'); }
+  const model = S.model || SAFE_FALLBACK_MODEL;
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(S.apiKey);
+  const contents = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.text }] }));
+  const body = { contents, generationConfig: { temperature: 0.5 } };
+  let res;
+  try{
+    res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  }catch(networkErr){
+    throw new Error('Could not reach the Gemini API. Ensure you are connected to the internet and API Key is valid.');
+  }
+  if(!res.ok){
+    let msg = '';
+    try{ const j = await res.json(); msg = j.error?.message || JSON.stringify(j); }catch(e){ msg = await res.text(); }
+    const retired = res.status===404 && /no longer available|not found for API version|is not found/i.test(msg);
+    if(retired && !_retried && model !== SAFE_FALLBACK_MODEL){
+      S.model = SAFE_FALLBACK_MODEL;
+      await saveModel();
+      S.autoSwitchedModel = { from: model, to: SAFE_FALLBACK_MODEL };
+      return callGeminiChat(messages, { _retried: true });
+    }
+    throw new Error('Gemini API error (' + res.status + '): ' + msg.slice(0,300));
+  }
+  const data = await res.json();
+  if(data.promptFeedback?.blockReason){ throw new Error('Request was blocked: ' + data.promptFeedback.blockReason); }
+  const cand = data.candidates && data.candidates[0];
+  const text = cand?.content?.parts?.map(p=>p.text||'').join('') || '';
+  if(!text) throw new Error('Empty response from the model. Try again.');
+  return text;
+}
+
 async function fileToInlinePart(file){
   if(S.supabaseClient){
     try {
@@ -781,6 +856,8 @@ const TYPE_LABELS = {
   fill_blank: 'Fill in the blank',
 };
 
+const LATEX_INSTRUCTION = 'For any mathematical, chemical, or physics formulas/equations, write them using LaTeX syntax: wrap inline expressions in single dollar signs like $x^2 + 1$ and standalone/display equations in double dollar signs like $$E = mc^2$$. Use proper LaTeX commands (\\frac, \\sqrt, \\rightarrow, subscripts/superscripts, etc). Do not use LaTeX for plain prose.';
+
 function levelInstruction(level){
   if(level === 'college'){
     return 'The student is at COLLEGE level. Use precise academic vocabulary, expect nuanced/analytical thinking, and do not oversimplify — write as you would for an undergraduate course.';
@@ -808,6 +885,7 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
   const prompt = [
     'You are building study materials for a ' + (level==='college'?'college':'high school') + ' student.',
     levelInstruction(level),
+    LATEX_INSTRUCTION,
     'Topic / set title: ' + title,
     difficultyNote ? 'Adaptive difficulty instruction: ' + difficultyNote : '',
     '',
@@ -892,6 +970,7 @@ async function generateQuizOnly({ title, notesSummary, level, count, types, rece
   const prompt = [
     'Write a fresh practice quiz for a ' + (level==='college'?'college':'high school') + ' student on "' + title + '", based only on this notes summary:',
     levelInstruction(level),
+    LATEX_INSTRUCTION,
     '',
     notesSummary,
     '',
@@ -912,6 +991,7 @@ async function generateMoreStickyNotes({ title, notesSummary, level, existingTit
   const prompt = [
     'Write ' + count + ' NEW revision flashcards for a ' + (level==='college'?'college':'high school') + ' student studying "' + title + '", based only on this notes summary:',
     levelInstruction(level),
+    LATEX_INSTRUCTION,
     '',
     notesSummary,
     '',
@@ -1003,6 +1083,7 @@ async function generateTest({ title, notesSummary, level, count, leniency, perso
   const prompt = [
     'Write a formal test for a ' + (level==='college'?'college':'high school') + ' student, based only on the following study material summary for "' + title + '":',
     levelInstruction(level),
+    LATEX_INSTRUCTION,
     leniencyNote,
     personaNote,
     '',
@@ -1056,12 +1137,29 @@ function render(){
   }
   if(S.loading){ html += renderLoadingOverlay(); }
   if(S.modelFallbackModal){ html += renderModelFallbackModal(); }
+  if(S.tutorDrawer){ html += renderTutorDrawer(); }
   root.innerHTML = html;
   bindEvents();
 
   if(S.route === 'stats'){
     initStatsCharts();
   }
+  renderMathInRoot();
+}
+
+function renderMathInRoot(){
+  if(typeof renderMathInElement !== 'function') return;
+  try{
+    renderMathInElement(root, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\[', right: '\\]', display: true },
+        { left: '$', right: '$', display: false },
+        { left: '\\(', right: '\\)', display: false }
+      ],
+      throwOnError: false
+    });
+  }catch(e){ /* ignore malformed LaTeX */ }
 }
 
 function renderAutoSwitchBanner(){
@@ -1071,6 +1169,88 @@ function renderAutoSwitchBanner(){
     '<span>"' + esc(a.from) + '" is retired, switched to "' + esc(a.to) + '" and saved it in Settings.</span>' +
     '<button type="button" class="linklike" id="dismiss-autoswitch" style="background:none;border:none;color:inherit;text-decoration:underline;font-size:12px;padding:0;">Dismiss</button>' +
   '</div>';
+}
+
+function renderTutorDrawer(){
+  const d = S.tutorDrawer;
+  if(!d) return '';
+  const qPreview = d.context.question.length > 140 ? d.context.question.slice(0,140) + '\u2026' : d.context.question;
+  return (
+    '<div class="tutor-scrim" id="tutor-scrim"></div>' +
+    '<div class="tutor-drawer">' +
+      '<div class="tutor-head">' +
+        '<div><h4>Ask Tutor</h4><div class="qref">' + esc(qPreview) + '</div></div>' +
+        '<button class="tutor-close" id="tutor-close">&times;</button>' +
+      '</div>' +
+      (d.messages.length === 0 ? (
+        '<div class="tutor-quick">' +
+          '<button data-tutor-quick="Why is my answer wrong?">Why is my answer wrong?</button>' +
+          '<button data-tutor-quick="Give me an intuitive real-world analogy for this concept.">Give me an intuitive real-world analogy</button>' +
+          '<button data-tutor-quick="Give me an easier practice question on this specific concept.">Give me an easier practice question on this concept</button>' +
+        '</div>'
+      ) : '') +
+      '<div class="tutor-messages" id="tutor-messages">' +
+        d.messages.map(m => '<div class="tutor-msg ' + m.role + '">' + esc(m.text) + '</div>').join('') +
+        (d.loading ? '<div class="tutor-typing">Tutor is typing&hellip;</div>' : '') +
+      '</div>' +
+      '<div class="tutor-input-row">' +
+        '<input type="text" id="tutor-input" placeholder="Ask a follow-up..." />' +
+        '<button class="btn btn-primary btn-sm" id="tutor-send">Send</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function buildTutorContextPrefix(ctx){
+  return [
+    'You are a friendly, encouraging Socratic tutor helping a ' + (S.profile.level==='college'?'college':'high school') + ' student understand a concept they missed on a ' + ctx.source + '.',
+    levelInstruction(S.profile.level),
+    LATEX_INSTRUCTION,
+    'Respond conversationally in ' + getTargetLang() + ', in 2-5 sentences unless the student asks for more. Guide understanding rather than just restating the rubric verbatim.',
+    '',
+    'Question: ' + ctx.question,
+    ctx.rubricOrAnswer ? 'Correct answer / rubric: ' + ctx.rubricOrAnswer : '',
+    'Student\'s answer: ' + (ctx.userAnswer || '(no answer given)'),
+    '',
+    'Student says: '
+  ].filter(Boolean).join('\n');
+}
+
+function openTutorDrawer(source, idx){
+  const sess = source === 'quiz' ? S.quizSession : S.testSession;
+  if(!sess) return;
+  const q = sess.questions[idx];
+  const context = {
+    source,
+    question: q.question,
+    rubricOrAnswer: source === 'test' ? q.rubric : q.answer,
+    userAnswer: sess.answers[idx]
+  };
+  S.tutorDrawer = { context, messages: [], loading: false };
+  render();
+}
+function closeTutorDrawer(){
+  S.tutorDrawer = null;
+  render();
+}
+async function sendTutorMessage(displayText){
+  const d = S.tutorDrawer;
+  if(!d || !displayText.trim()) return;
+  d.messages.push({ role: 'user', text: displayText.trim() });
+  d.loading = true;
+  render();
+  try{
+    const apiMessages = d.messages.map((m,i) => i===0 ? { role:'user', text: buildTutorContextPrefix(d.context) + m.text } : m);
+    const reply = await callGeminiChat(apiMessages);
+    d.messages.push({ role: 'assistant', text: reply });
+  }catch(e){
+    d.messages.push({ role: 'assistant', text: 'Sorry, something went wrong: ' + e.message });
+  }finally{
+    d.loading = false;
+    render();
+    const msgBox = document.getElementById('tutor-messages');
+    if(msgBox) msgBox.scrollTop = msgBox.scrollHeight;
+  }
 }
 
 function renderModelFallbackModal(){
@@ -1098,6 +1278,8 @@ function renderRoute(){
     case 'set': return renderSet();
     case 'settings': return renderSettings();
     case 'stats': return renderStatsPage();
+    case 'examBuilder': return renderExamBuilder();
+    case 'dailyreview': return renderDailyReview();
     default: return '';
   }
 }
@@ -1300,8 +1482,15 @@ function renderCustomScaleEditor(custom) {
 function renderDashboard(){
   const sets = S.studySets;
   const allHistory = sets.flatMap(s => (s.history||[]).map(h => ({ timestamp: h.timestamp })));
+  const dueCards = computeDueCards(sets);
   return (
     (allHistory.length ? renderStreakBar(allHistory) : '') +
+    (sets.length ? (
+      '<div class="dash-actions">' +
+        '<button class="btn btn-primary" data-nav="dailyreview">Daily Review' + (dueCards.length ? ' <span class="due-badge">' + dueCards.length + '</span>' : '') + '</button>' +
+        '<button class="btn btn-quiet" data-nav="examBuilder">Build Comprehensive Exam</button>' +
+      '</div>'
+    ) : '') +
     '<div class="section-heading">' +
       '<h2>Study Sets</h2>' +
       '<span class="muted" style="font-size:13px">' + sets.length + ' set' + (sets.length===1?'':'s') + '</span>' +
@@ -1397,7 +1586,7 @@ function renderStatsPage(){
   const totalAttempts = entries.length;
   const overallAvg = Math.round(entries.reduce((a,e)=>a+e.pct,0) / totalAttempts);
   const quizEntries = entries.filter(e=>e.type==='quiz');
-  const testEntries = entries.filter(e=>e.type==='test');
+  const testEntries = entries.filter(e=>e.type==='test' || e.type==='comprehensive');
   const quizAvg = quizEntries.length ? Math.round(quizEntries.reduce((a,e)=>a+e.pct,0)/quizEntries.length) : null;
   const testAvg = testEntries.length ? Math.round(testEntries.reduce((a,e)=>a+e.pct,0)/testEntries.length) : null;
 
@@ -1548,7 +1737,7 @@ function initStatsCharts(){
   }
 
   const quizEntries = entries.filter(e=>e.type==='quiz');
-  const testEntries = entries.filter(e=>e.type==='test');
+  const testEntries = entries.filter(e=>e.type==='test' || e.type==='comprehensive');
   const typeCanvas = document.getElementById('stats-type-chart');
   if(typeCanvas && quizEntries.length && testEntries.length){
     const quizAvg = Math.round(quizEntries.reduce((a,e)=>a+e.pct,0)/quizEntries.length);
@@ -1572,6 +1761,130 @@ function initStatsCharts(){
       }
     });
   }
+}
+
+// ═══════════════════════ COMPREHENSIVE EXAM BUILDER ═══════════════════════
+
+function renderExamBuilder(){
+  const sess = S.comprehensiveSession;
+
+  if(sess && sess.submitted){
+    const pct = Math.round((sess.pointsEarned / sess.totalPoints) * 100);
+    const letter = letterFor(pct);
+    return (
+      '<div class="section-heading"><h2>Comprehensive Exam</h2></div>' +
+      '<div class="score-block">' +
+        '<div class="score-num">' + sess.pointsEarned.toFixed(1) + ' / ' + sess.totalPoints + ' pts</div>' +
+        '<div class="score-label">EXAM SCORE &nbsp;&bull;&nbsp; ' + pct + '%</div>' +
+        '<div class="score-letter">Grade: ' + letter + '</div>' +
+      '</div>' +
+      '<div style="margin-bottom:var(--sp-5);"><button class="btn btn-primary" id="exam-new">Build another exam</button></div>' +
+      renderTestQuestionsReview(sess)
+    );
+  }
+
+  if(sess){
+    return (
+      '<div class="section-heading"><h2>Comprehensive Exam</h2></div>' +
+      '<div class="quiz-progress">' +
+        '<div class="quiz-progress-label"><span>Cumulative Exam &bull; ' + esc(sess.sourceTitles.join(', ')) + '</span>' +
+          (sess.timerTotalSeconds ? '<span id="timer-display" class="timer-pin">' + formatTimer(sess.timerRemaining) + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+      sess.questions.map((q, i) => (
+        '<div class="qcard">' +
+          '<div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + q.points + ' PTS' + (q.sourceTitle ? ' &bull; ' + esc(q.sourceTitle) : '') + '</div>' +
+          '<div class="qtext">' + esc(q.question) + '</div>' +
+          '<textarea class="exam-text-in" data-eidx="' + i + '" placeholder="Write your response...">' + esc(sess.answers[i]||'') + '</textarea>' +
+        '</div>'
+      )).join('') +
+      '<div style="margin-top:var(--sp-6);"><button class="btn btn-primary" id="submit-exam">Submit exam for grading</button></div>'
+    );
+  }
+
+  const sets = S.studySets;
+  if(!S.examBuilderSelectedIds) S.examBuilderSelectedIds = [];
+  const ts = S.examBuilderSettings || { count: 20, leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none' };
+  const rec = recommendTimerMinutes(ts.count || 20);
+  return (
+    '<div class="section-heading"><h2>Comprehensive Exam</h2></div>' +
+    '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Pick 2&ndash;5 study sets to build one cumulative exam sampling across all of them &mdash; ideal for midterms and finals.</p>' +
+    '<div class="stats-select-panel">' +
+      '<div class="stats-select-head"><h4>Choose study sets (2&ndash;5)</h4></div>' +
+      (sets.length < 2 ? '<div class="muted" style="font-size:13px;">You need at least 2 study sets to build a comprehensive exam.</div>' :
+        '<div class="stats-set-list">' +
+          sets.map(s => {
+            const isSel = S.examBuilderSelectedIds.includes(s.id);
+            return (
+              '<div class="stats-set-chip ' + (isSel?'selected':'') + '" data-exam-toggle="' + s.id + '">' +
+                '<input type="checkbox" ' + (isSel?'checked':'') + ' style="pointer-events:none;" />' +
+                '<span>' + esc(s.title) + '</span>' +
+                '<span class="chip-cat">' + esc(s.category || 'General') + '</span>' +
+              '</div>'
+            );
+          }).join('') +
+        '</div>'
+      ) +
+    '</div>' +
+    (sets.length >= 2 ? (
+      '<div class="setup-panel">' +
+        '<div class="setup-grid">' +
+          '<div class="field">' +
+            '<label class="field-label">Total question count</label>' +
+            '<select id="exam-count">' +
+              TEST_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((ts.count||20)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
+            '</select>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Grading leniency</label>' +
+            '<select id="exam-leniency">' +
+              '<option value="strict" ' + (ts.leniency==='strict'?'selected':'') + '>Strict</option>' +
+              '<option value="standard" ' + ((ts.leniency||'standard')==='standard'?'selected':'') + '>Standard</option>' +
+              '<option value="lenient" ' + (ts.leniency==='lenient'?'selected':'') + '>Lenient</option>' +
+            '</select>' +
+          '</div>' +
+          renderTimerSetting('exam', rec, ts.timerMode, ts.timerCustom) +
+        '</div>' +
+        '<div class="field">' +
+          '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="exam-spelling" ' + (ts.spellingLenient!==false?'checked':'') + ' /> Ignore minor spelling &amp; grammar mistakes when grading</label>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label class="field-label">Examiner persona <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+          '<input type="text" id="exam-persona" value="' + esc(ts.persona||'') + '" placeholder="e.g. a tough but fair professor..." />' +
+        '</div>' +
+        '<button class="btn btn-primary" id="build-exam" style="margin-top:var(--sp-2);">Generate comprehensive exam</button>' +
+      '</div>'
+    ) : '')
+  );
+}
+
+async function generateComprehensiveTest({ sets, level, count, leniency, persona }){
+  const targetLang = getTargetLang();
+  const leniencyNote = {
+    strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
+    standard: 'Grading will be STANDARD — write rubrics that reward solid understanding without demanding perfect wording.',
+    lenient: 'Grading will be LENIENT — write rubrics focused on core understanding, forgiving of minor gaps or imprecision.'
+  }[leniency || 'standard'];
+  const personaNote = persona && persona.trim() ? ('Write questions in the voice/spirit of this examiner persona: "' + persona.trim() + '".') : '';
+  const combinedMaterial = sets.map(s => '=== ' + s.title + ' (' + (s.category||'General') + ') ===\n' + s.notesSummary).join('\n\n');
+  const prompt = [
+    'Write a cumulative, comprehensive exam for a ' + (level==='college'?'college':'high school') + ' student covering ALL of the following study units together, based only on the material below:',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    leniencyNote,
+    personaNote,
+    '',
+    combinedMaterial,
+    '',
+    'IMPORTANT: Write all questions, rubrics, and related text entirely in ' + targetLang + '.',
+    'Produce a JSON object: { "questions": [ { "type": "short_answer" or "essay", "sourceTitle": string, "question": string, "rubric": string, "points": number } ] }.',
+    'Write exactly ' + count + ' questions total, distributed as evenly and fairly as possible across all ' + sets.length + ' units listed (roughly balanced, not just weighted to one). "sourceTitle" must exactly match which unit title above the question is drawn from.',
+    'Mostly short_answer; include a small number of essay questions only if it genuinely supports cumulative synthesis across units.',
+    'The "rubric" field briefly describes what a full-credit answer must include; do not show it to the student.',
+    'Points should sum to 100 across all questions.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  return callGemini([{ text: prompt }]);
 }
 
 function renderNewSet(){
@@ -1689,9 +2002,141 @@ function renderTabNotes(set){
       '</div>' +
       '<hr class="divider" />' +
       '<div>' +
-        '<h3 style="margin-bottom:var(--sp-3)">Consolidated Notes Summary</h3>' +
-        '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px;">' + esc(set.notesSummary||'') + '</div>' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-3);">' +
+          '<h3>Consolidated Notes Summary</h3>' +
+          '<button class="btn btn-quiet btn-sm" id="toggle-active-recall">' + (S.activeRecallMode ? 'Show full text' : 'Active Recall Mode') + '</button>' +
+        '</div>' +
+        (S.activeRecallMode
+          ? '<div class="callout cloze-summary" style="white-space:pre-wrap; line-height:1.8; font-family:var(--font-serif); font-size:14.5px;">' + renderClozeSummary(set) + '</div>'
+          : '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px;">' + esc(set.notesSummary||'') + '</div>'
+        ) +
       '</div>' +
+    '</div>'
+  );
+}
+
+function escRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function renderClozeSummary(set){
+  const text = set.notesSummary || '';
+  const terms = (set.stickyNotes || []).map(sn => sn.title).filter(t => t && t.trim().length > 1);
+  if(!terms.length) return esc(text);
+  const sorted = terms.slice().sort((a,b) => b.length - a.length);
+  const pattern = sorted.map(escRegex).join('|');
+  const re = new RegExp('(' + pattern + ')', 'gi');
+  const maskedOnce = new Set();
+  let idx = 0;
+  let result = '';
+  let lastIndex = 0;
+  let m;
+  while((m = re.exec(text)) !== null){
+    const term = m[0];
+    const key = term.toLowerCase();
+    result += esc(text.slice(lastIndex, m.index));
+    if(!maskedOnce.has(key)){
+      maskedOnce.add(key);
+      result += '<span class="cloze-blank" data-answer="' + esc(term) + '" data-cloze-idx="' + (idx++) + '">[ _____ ]</span>';
+    } else {
+      result += esc(term);
+    }
+    lastIndex = m.index + term.length;
+    if(m.index === re.lastIndex) re.lastIndex++; // guard against zero-length match loops
+  }
+  result += esc(text.slice(lastIndex));
+  return result;
+}
+
+// ═══════════════════════ DAILY REVIEW (LEITNER SPACED REPETITION) ═══════════════════════
+
+const LEITNER_INTERVALS_DAYS = [1, 3, 7, 14];
+
+function gradeCardReview(note, gotIt){
+  if(gotIt){
+    note.boxLevel = Math.min((note.boxLevel||0) + 1, LEITNER_INTERVALS_DAYS.length);
+  } else {
+    note.boxLevel = 0;
+  }
+  const days = LEITNER_INTERVALS_DAYS[Math.max(0, Math.min(note.boxLevel - 1, LEITNER_INTERVALS_DAYS.length - 1))] || 1;
+  note.lastReviewed = Date.now();
+  note.nextReview = Date.now() + days * 86400000;
+}
+
+async function persistCardReview(setId, note){
+  if(!S.supabaseClient || !note.id) return;
+  try{
+    await S.supabaseClient.from('sticky_notes').update({
+      box_level: note.boxLevel,
+      next_review: new Date(note.nextReview).toISOString(),
+      last_reviewed: new Date(note.lastReviewed).toISOString()
+    }).eq('id', note.id);
+  }catch(e){ console.error('Failed to persist card review', e); }
+}
+
+function computeDueCards(sets){
+  const now = Date.now();
+  const due = [];
+  sets.forEach(set => {
+    (set.stickyNotes || []).forEach((note, noteIndex) => {
+      const nextReview = note.nextReview != null ? note.nextReview : 0; // never-reviewed cards are due immediately
+      if(nextReview <= now){
+        due.push({
+          setId: set.id,
+          setTitle: set.title,
+          category: set.category || 'General',
+          noteIndex,
+          title: note.title,
+          body: note.body,
+          nextReview
+        });
+      }
+    });
+  });
+  due.sort((a,b) => a.nextReview - b.nextReview);
+  return due;
+}
+
+function handleDailyReviewGrade(gotIt){
+  const queue = S.dailyReviewQueue;
+  if(!queue || !queue.length) return;
+  const item = queue[0];
+  const set = S.studySets.find(s => s.id === item.setId);
+  const note = set && set.stickyNotes[item.noteIndex];
+  if(note){
+    gradeCardReview(note, gotIt);
+    persistCardReview(set.id, note);
+  }
+  queue.shift();
+  S.dailyReviewFlipped = false;
+  render();
+}
+
+function renderDailyReview(){
+  const queue = S.dailyReviewQueue || [];
+  if(queue.length === 0){
+    return (
+      '<div class="section-heading"><h2>Daily Review</h2></div>' +
+      '<div class="stats-empty">' +
+        '<p style="margin-bottom:var(--sp-3);">You&rsquo;re all caught up &mdash; no cards are due for review right now.</p>' +
+        '<button class="btn btn-primary" data-nav="dashboard">Back to Study Sets</button>' +
+      '</div>'
+    );
+  }
+  const card = queue[0];
+  const flipped = S.dailyReviewFlipped;
+  return (
+    '<div class="section-heading"><h2>Daily Review</h2></div>' +
+    '<div style="text-align:center; margin-bottom:var(--sp-3); font-family:var(--font-mono); font-size:12.5px; color:var(--ink-faint);">' +
+      queue.length + ' card' + (queue.length===1?'':'s') + ' remaining &bull; ' + esc(card.setTitle) + ' (' + esc(card.category) + ')' +
+    '</div>' +
+    '<div class="flashcard-wrap ' + (flipped?'flipped':'') + '" id="dr-card">' +
+      '<div class="flashcard-inner">' +
+        '<div class="flashcard-face front"><span class="fc-label">CONCEPT &bull; tap to flip</span><span class="fc-text">' + esc(card.title) + '</span></div>' +
+        '<div class="flashcard-face back"><span class="fc-label">EXPLANATION</span><span class="fc-text">' + esc(card.body) + '</span></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="fc-actions">' +
+      '<button class="btn btn-quiet btn-sm" id="dr-review">Still learning</button>' +
+      '<button class="btn btn-quiet btn-sm" id="dr-got">Got it</button>' +
     '</div>'
   );
 }
@@ -1855,6 +2300,7 @@ function renderQuizQuestionsReview(sess){
         '<div style="font-size:13.5px; margin-bottom:4px;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
         (!res.correct ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + '</strong></div>' : '') +
         (explanation ? '<div class="feedback-line">' + esc(explanation) + '</div>' : '') +
+        (!res.correct ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="quiz" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
       '</div>'
     );
   }).join('');
@@ -1960,6 +2406,7 @@ function renderTestQuestionsReview(sess){
         (q.rubric ? (
           '<details class="rubric-reveal"><summary>Show grading rubric</summary><div class="rubric-body">' + esc(q.rubric) + '</div></details>'
         ) : '') +
+        (earned < max ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="test" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
       '</div>'
     );
   }).join('');
@@ -2100,6 +2547,15 @@ function bindEvents(){
       else if(target === 'stats'){
         S.route = 'stats';
         if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
+      }
+      else if(target === 'examBuilder'){
+        S.route = 'examBuilder';
+        S.comprehensiveSession = null;
+        S.examBuilderSelectedIds = [];
+      }
+      else if(target === 'dailyreview'){
+        S.route = 'dailyreview';
+        S.dailyReviewQueue = computeDueCards(S.studySets).slice(0, 15);
       }
       render();
     };
@@ -2380,7 +2836,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           updatedAt: Date.now(),
           notesSummary: result.notesSummary,
           category: result.category || 'General',
-          stickyNotes: result.stickyNotes,
+          stickyNotes: (result.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
           quiz: result.quiz,
           history: []
         };
@@ -2409,6 +2865,49 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       clearActiveTimer();
       S.currentTab = e.currentTarget.getAttribute('data-set-tab');
       render();
+    };
+  });
+
+  document.querySelectorAll('[data-ask-tutor]').forEach(el => {
+    el.onclick = (e) => {
+      const source = e.currentTarget.getAttribute('data-ask-tutor');
+      const idx = parseInt(e.currentTarget.getAttribute('data-tutor-idx'));
+      openTutorDrawer(source, idx);
+    };
+  });
+  const tutorClose = document.getElementById('tutor-close');
+  if(tutorClose) tutorClose.onclick = closeTutorDrawer;
+  const tutorScrim = document.getElementById('tutor-scrim');
+  if(tutorScrim) tutorScrim.onclick = closeTutorDrawer;
+  document.querySelectorAll('[data-tutor-quick]').forEach(el => {
+    el.onclick = (e) => sendTutorMessage(e.currentTarget.getAttribute('data-tutor-quick'));
+  });
+  const tutorSend = document.getElementById('tutor-send');
+  const tutorInput = document.getElementById('tutor-input');
+  if(tutorSend && tutorInput){
+    const doSend = () => {
+      const val = tutorInput.value;
+      if(!val.trim()) return;
+      tutorInput.value = '';
+      sendTutorMessage(val);
+    };
+    tutorSend.onclick = doSend;
+    tutorInput.onkeydown = (e) => { if(e.key === 'Enter') doSend(); };
+  }
+
+  const toggleActiveRecall = document.getElementById('toggle-active-recall');
+  if(toggleActiveRecall){
+    toggleActiveRecall.onclick = () => {
+      S.activeRecallMode = !S.activeRecallMode;
+      render();
+    };
+  }
+  document.querySelectorAll('.cloze-blank').forEach(el => {
+    el.onclick = (e) => {
+      const target = e.currentTarget;
+      if(target.classList.contains('revealed')) return;
+      target.classList.add('revealed');
+      target.textContent = target.getAttribute('data-answer');
     };
   });
 
@@ -2450,9 +2949,13 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       if(!S.flashcardDone) S.flashcardDone = [];
       S.flashcardDone[S.flashcardIdx||0] = 'got';
       const set = S.studySets.find(s=>s.id===S.currentSetId);
-      if(set && (S.flashcardIdx||0) < set.stickyNotes.length - 1){
-        S.flashcardIdx = (S.flashcardIdx||0) + 1;
-        S.flashcardFlipped = false;
+      if(set){
+        const note = set.stickyNotes[S.flashcardIdx||0];
+        if(note){ gradeCardReview(note, true); persistCardReview(set.id, note); }
+        if((S.flashcardIdx||0) < set.stickyNotes.length - 1){
+          S.flashcardIdx = (S.flashcardIdx||0) + 1;
+          S.flashcardFlipped = false;
+        }
       }
       render();
     };
@@ -2463,13 +2966,26 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       if(!S.flashcardDone) S.flashcardDone = [];
       S.flashcardDone[S.flashcardIdx||0] = 'review';
       const set = S.studySets.find(s=>s.id===S.currentSetId);
-      if(set && (S.flashcardIdx||0) < set.stickyNotes.length - 1){
-        S.flashcardIdx = (S.flashcardIdx||0) + 1;
-        S.flashcardFlipped = false;
+      if(set){
+        const note = set.stickyNotes[S.flashcardIdx||0];
+        if(note){ gradeCardReview(note, false); persistCardReview(set.id, note); }
+        if((S.flashcardIdx||0) < set.stickyNotes.length - 1){
+          S.flashcardIdx = (S.flashcardIdx||0) + 1;
+          S.flashcardFlipped = false;
+        }
       }
       render();
     };
   }
+
+  const drCard = document.getElementById('dr-card');
+  if(drCard){
+    drCard.onclick = () => { S.dailyReviewFlipped = !S.dailyReviewFlipped; render(); };
+  }
+  const drGot = document.getElementById('dr-got');
+  if(drGot){ drGot.onclick = () => handleDailyReviewGrade(true); }
+  const drReview = document.getElementById('dr-review');
+  if(drReview){ drReview.onclick = () => handleDailyReviewGrade(false); }
 
   ['quiz-timer-mode','test-timer-mode'].forEach(id => {
     const sel = document.getElementById(id);
@@ -2506,7 +3022,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           count: 8
         });
         const startIdx = set.stickyNotes.length;
-        set.stickyNotes = set.stickyNotes.concat(more);
+        set.stickyNotes = set.stickyNotes.concat(more.map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })));
         await saveStudySet(set);
         S.flashcardIdx = startIdx;
         S.flashcardFlipped = false;
@@ -2676,6 +3192,156 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         S.loading = false;
         render();
       }
+    };
+  }
+
+  document.querySelectorAll('[data-exam-toggle]').forEach(el => {
+    el.onclick = (e) => {
+      const id = e.currentTarget.getAttribute('data-exam-toggle');
+      if(!S.examBuilderSelectedIds) S.examBuilderSelectedIds = [];
+      if(S.examBuilderSelectedIds.includes(id)){
+        S.examBuilderSelectedIds = S.examBuilderSelectedIds.filter(x=>x!==id);
+      } else {
+        if(S.examBuilderSelectedIds.length >= 5){ alert('You can select up to 5 study sets.'); return; }
+        S.examBuilderSelectedIds.push(id);
+      }
+      render();
+    };
+  });
+
+  const examTimerModeSel = document.getElementById('exam-timer-mode');
+  if(examTimerModeSel){
+    examTimerModeSel.onchange = () => {
+      const customInput = document.getElementById('exam-timer-custom');
+      if(customInput) customInput.style.display = examTimerModeSel.value === 'custom' ? 'block' : 'none';
+    };
+  }
+
+  const buildExamBtn = document.getElementById('build-exam');
+  if(buildExamBtn){
+    buildExamBtn.onclick = async () => {
+      const ids = S.examBuilderSelectedIds || [];
+      if(ids.length < 2){ alert('Choose at least 2 study sets.'); return; }
+      const sets = S.studySets.filter(s => ids.includes(s.id));
+      const count = parseInt(document.getElementById('exam-count').value);
+      const leniency = document.getElementById('exam-leniency').value;
+      const spellingLenient = document.getElementById('exam-spelling').checked;
+      const persona = document.getElementById('exam-persona').value.trim();
+      const rec = recommendTimerMinutes(count);
+      const timerMode = document.getElementById('exam-timer-mode').value;
+      const timerCustomEl = document.getElementById('exam-timer-custom');
+      const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
+      const timerMinutes = resolveTimerMinutes('exam', rec);
+
+      S.examBuilderSettings = { count, leniency, spellingLenient, persona, timerMode, timerCustom };
+
+      S.loading = true;
+      S.loadingMsg = 'Generating formal test...';
+      render();
+      try{
+        const res = await generateComprehensiveTest({ sets, level: S.profile.level, count, leniency, persona });
+        const totalPoints = res.questions.reduce((acc,q)=>acc+q.points, 0);
+        S.comprehensiveSession = {
+          questions: res.questions,
+          totalPoints,
+          answers: {},
+          submitted: false,
+          pointsEarned: 0,
+          gradedResults: [],
+          leniency, spellingLenient, persona,
+          sourceSetIds: ids,
+          sourceTitles: sets.map(s=>s.title),
+          timerTotalSeconds: timerMinutes ? timerMinutes*60 : null,
+          timerRemaining: timerMinutes ? timerMinutes*60 : null
+        };
+        if(timerMinutes){
+          startSessionTimer(S.comprehensiveSession, () => {
+            const btn = document.getElementById('submit-exam');
+            if(btn) btn.click();
+          });
+        }
+      }catch(e){
+        alert('Exam generation failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  document.querySelectorAll('.exam-text-in').forEach(el => {
+    el.oninput = (e) => {
+      const idx = parseInt(e.target.getAttribute('data-eidx'));
+      if(S.comprehensiveSession) S.comprehensiveSession.answers[idx] = e.target.value;
+    };
+  });
+
+  const submitExamBtn = document.getElementById('submit-exam');
+  if(submitExamBtn){
+    submitExamBtn.onclick = async () => {
+      const sess = S.comprehensiveSession;
+      clearActiveTimer();
+      const items = sess.questions.map((q, i) => ({ question: q.question, rubric: q.rubric, points: q.points, userAnswer: sess.answers[i] }));
+      S.loading = true;
+      S.loadingMsg = 'Grading test responses...';
+      render();
+      try{
+        const graded = await gradeTest(items, { level: S.profile.level, leniency: sess.leniency, spellingLenient: sess.spellingLenient, persona: sess.persona });
+        let pointsEarned = 0;
+        sess.gradedResults = graded.map((g, i) => {
+          const capped = Math.max(0, Math.min(g.pointsEarned, sess.questions[i].points));
+          pointsEarned += capped;
+          return { pointsEarned: capped, feedback: g.feedback };
+        });
+        sess.pointsEarned = pointsEarned;
+        sess.submitted = true;
+
+        const pct = Math.round((pointsEarned / sess.totalPoints) * 100);
+        const letter = letterFor(pct);
+        const historyEntry = {
+          type: 'comprehensive',
+          timestamp: Date.now(),
+          pct,
+          letter,
+          scoreText: pointsEarned.toFixed(1) + '/' + sess.totalPoints + ' pts'
+        };
+        for(const setId of sess.sourceSetIds){
+          const set = S.studySets.find(s=>s.id===setId);
+          if(!set) continue;
+          if(!set.history) set.history = [];
+          set.history.push(historyEntry);
+          if(S.supabaseClient){
+            try{
+              const { data: { session: authSession } } = await S.supabaseClient.auth.getSession();
+              if(authSession){
+                await S.supabaseClient.from('history').insert({
+                  study_set_id: setId,
+                  user_id: authSession.user.id,
+                  type: historyEntry.type,
+                  pct: historyEntry.pct,
+                  letter: historyEntry.letter,
+                  score_text: historyEntry.scoreText,
+                  timestamp: historyEntry.timestamp
+                });
+              }
+            }catch(err){ console.error('Failed to save comprehensive exam history', err); }
+          }
+        }
+      }catch(e){
+        alert('Grading failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  const examNewBtn = document.getElementById('exam-new');
+  if(examNewBtn){
+    examNewBtn.onclick = () => {
+      S.comprehensiveSession = null;
+      S.examBuilderSelectedIds = [];
+      render();
     };
   }
 
