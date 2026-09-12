@@ -1353,6 +1353,7 @@ function renderTopbar(){
 }
 
 function renderOnboarding(){
+  if(S.authMode === 'forgot') return renderForgotPassword();
   const isLogin = S.authMode === 'login';
   const draft = S._onboardDraft || { name: '', password: '', level: 'college' };
   S._onboardDraft = draft;
@@ -1379,6 +1380,7 @@ function renderOnboarding(){
       '<div class="field">' +
         '<label class="field-label">Password</label>' +
         '<input type="password" id="auth-password" value="' + esc(draft.password) + '" placeholder="••••••••" />' +
+        (isLogin ? '<div style="margin-top:6px;"><button type="button" class="linklike" id="auth-forgot-link" style="background:none; border:none; color:var(--navy); text-decoration:underline; font-size:12.5px; padding:0;">Forgot password?</button></div>' : '') +
       '</div>' +
 
       '<div class="field">' +
@@ -1412,6 +1414,30 @@ function renderOnboarding(){
         '<button type="button" class="linklike" id="auth-toggle-mode" style="background:none; border:none; color:var(--navy); text-decoration:underline; font-size:13px;">' +
           (isLogin ? 'Need an account? Sign up' : 'Already have an account? Log in') +
         '</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderForgotPassword(){
+  const sent = S._forgotSent;
+  return (
+    '<div class="app app-narrow onboard-wrap">' +
+      '<div class="wordmark">Marginalia</div>' +
+      '<p class="onboard-sub">Enter the real email address on your account and we\'ll send you a reset link.</p>' +
+      (sent ? (
+        '<div class="callout" style="margin-bottom:15px;">If that email is on an account, a reset link is on its way. Check your inbox (and spam folder).</div>'
+      ) : (
+        '<div class="field">' +
+          '<label class="field-label">Email</label>' +
+          '<input type="text" id="forgot-email" placeholder="you@example.com" />' +
+          '<div class="field-hint">This only works for accounts that were signed up with a real email address, not a generated username@marginalia.app one.</div>' +
+        '</div>'
+      )) +
+      (S._authError ? '<div class="callout error" style="margin-bottom:15px;">' + esc(S._authError) + '</div>' : '') +
+      '<div style="display:flex; gap:12px; align-items:center; margin-top:20px;">' +
+        (!sent ? '<button class="btn btn-primary" id="forgot-submit">Send reset link</button>' : '') +
+        '<button type="button" class="linklike" id="forgot-back" style="background:none; border:none; color:var(--navy); text-decoration:underline; font-size:13px;">Back to log in</button>' +
       '</div>' +
     '</div>'
   );
@@ -2612,6 +2638,56 @@ function bindEvents(){
       S.authMode = S.authMode === 'login' ? 'signup' : 'login';
       S._authError = null;
       render();
+    };
+  }
+
+  const authForgotLink = document.getElementById('auth-forgot-link');
+  if(authForgotLink){
+    authForgotLink.onclick = () => {
+      S.authMode = 'forgot';
+      S._authError = null;
+      S._forgotSent = false;
+      render();
+    };
+  }
+  const forgotBack = document.getElementById('forgot-back');
+  if(forgotBack){
+    forgotBack.onclick = () => {
+      S.authMode = 'login';
+      S._authError = null;
+      S._forgotSent = false;
+      render();
+    };
+  }
+  const forgotSubmit = document.getElementById('forgot-submit');
+  if(forgotSubmit){
+    forgotSubmit.onclick = async () => {
+      const emailInput = document.getElementById('forgot-email').value.trim();
+      if(!emailInput || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput)){
+        S._authError = 'Enter a valid email address.';
+        render();
+        return;
+      }
+      if(emailInput.toLowerCase().endsWith('@marginalia.app')){
+        S._authError = 'This is a generated internal address, not a real inbox — password recovery isn\'t available for it. Log in with your username instead.';
+        render();
+        return;
+      }
+      S.loading = true;
+      S.loadingMsg = 'Sending reset link...';
+      S._authError = null;
+      render();
+      try{
+        const redirectTo = window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'reset-password.html';
+        const { error } = await S.supabaseClient.auth.resetPasswordForEmail(emailInput, { redirectTo });
+        if(error) throw error;
+        S._forgotSent = true;
+      }catch(e){
+        S._authError = e.message;
+      }finally{
+        S.loading = false;
+        render();
+      }
     };
   }
 
