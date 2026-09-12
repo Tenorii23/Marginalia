@@ -263,6 +263,7 @@
   /* ── Difficulty badge on dashboard ── */
   .diff-badge{ font-family:var(--font-mono); font-size:10.5px; padding:2px 7px; border:1px solid var(--green); color:var(--green); background:var(--green-wash); display:inline-block; }
   .diff-badge.hard{ border-color:var(--oxblood); color:var(--oxblood); background:var(--oxblood-wash); }
+  .diff-badge.medium{ border-color:var(--amber); color:var(--amber); background:var(--amber-wash); }
 
   /* ── Rubric reveal block ── */
   .rubric-reveal{ margin-top:var(--sp-3); }
@@ -719,17 +720,25 @@ function renderWeakAreas(sess){
   );
 }
 
-// ── Adaptive difficulty ──
+// ── Adaptive / manual difficulty ──
 function getRecentScores(set, n=3){
   const hist = (set.history || []).slice(-n);
   return hist.map(h => h.pct);
 }
-function adaptiveDifficultyNote(set){
+function getDifficultyMode(set){
+  return (set.quizSettings && set.quizSettings.difficultyMode) || 'dynamic';
+}
+function difficultyDisplay(set){
+  const mode = getDifficultyMode(set);
+  if(mode === 'easy') return { label: 'Easy (manual)', cls: '', note: 'Difficulty manually set to easy.' };
+  if(mode === 'medium') return { label: 'Medium (manual)', cls: 'medium', note: 'Difficulty manually set to medium.' };
+  if(mode === 'hard') return { label: 'Hard (manual)', cls: 'hard', note: 'Difficulty manually set to hard.' };
+  // dynamic mode: infer from recent scores
   const recent = getRecentScores(set);
   if(recent.length < 2) return null;
   const avg = Math.round(recent.reduce((a,b)=>a+b,0)/recent.length);
-  if(avg >= 88) return { label: 'Harder', cls: 'hard', note: 'Scoring ' + avg + '% avg — questions will be more challenging.' };
-  if(avg <= 55) return { label: 'Easier', cls: '', note: 'Scoring ' + avg + '% avg — questions will be more accessible.' };
+  if(avg >= 88) return { label: 'Dynamic: Harder', cls: 'hard', note: 'Dynamic mode — scoring ' + avg + '% avg, questions will be more challenging.' };
+  if(avg <= 55) return { label: 'Dynamic: Easier', cls: '', note: 'Dynamic mode — scoring ' + avg + '% avg, questions will be more accessible.' };
   return null;
 }
 
@@ -957,15 +966,33 @@ async function gradeShortAnswers(items, level){
   return callGemini([{ text: prompt }]);
 }
 
-async function generateQuizOnly({ title, notesSummary, level, count, types, recentScores }){
-  const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
-  const targetLang = getTargetLang();
-  let difficultyNote = '';
+const DIFFICULTY_TIER_PROMPTS = {
+  easy: 'EASY difficulty: use simple, direct, unambiguous wording. Each question should test exactly ONE concept in isolation — no combining multiple ideas, no multi-step reasoning. Favor straightforward recall, definitions, and basic identification. A student who understands the core concept should be able to answer quickly and confidently.',
+  medium: 'MEDIUM difficulty: require a bit of applied reasoning — connecting two related facts, interpreting a short example, or explaining why/how something works — while still centering on a single core idea per question. More than pure recall, but not multi-layered.',
+  hard: 'HARD difficulty: increase CONCEPTUAL depth, not sentence length. Require synthesis, analysis, comparison across ideas, or applying a concept to a new/unfamiliar scenario. Test deeper understanding, edge cases, and "why" over "what". Do NOT simply pad questions with extra descriptive text, longer scenarios, or dense wording to make them seem harder — a hard question can still be a single crisp sentence. The difficulty must come from the THINKING required, not from how much there is to read. Never turn this into a reading-comprehension exercise.'
+};
+const DIFFICULTY_SHARED_PROMPT = 'Regardless of difficulty tier: vary question length naturally — mix short, medium, and longer questions throughout the set rather than making every question uniform length. Keep all correct answers and curriculum/factual accuracy completely unaffected by difficulty — difficulty changes how a question is asked and what reasoning it requires, never whether the content or the correct answer is accurate.';
+
+function resolveDifficultyTier(mode, recentScores){
+  if(mode === 'easy' || mode === 'medium' || mode === 'hard') return mode;
+  // dynamic: map straight onto the same tiers based on recent performance
   if(recentScores && recentScores.length >= 2){
     const avg = Math.round(recentScores.reduce((a,b)=>a+b,0)/recentScores.length);
-    if(avg >= 88) difficultyNote = 'The student recently averaged ' + avg + '% — make this set noticeably more challenging, with nuanced and higher-order questions.';
-    else if(avg <= 55) difficultyNote = 'The student recently averaged ' + avg + '% — make this set more accessible and straightforward to help rebuild confidence.';
-    else difficultyNote = 'The student recently averaged ' + avg + '% — keep difficulty similar to before, but write entirely new questions.';
+    if(avg >= 88) return 'hard';
+    if(avg <= 55) return 'easy';
+  }
+  return 'medium';
+}
+
+async function generateQuizOnly({ title, notesSummary, level, count, types, recentScores, difficultyMode }){
+  const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
+  const targetLang = getTargetLang();
+  const mode = difficultyMode || 'dynamic';
+  const tier = resolveDifficultyTier(mode, recentScores);
+  let difficultyNote = DIFFICULTY_TIER_PROMPTS[tier] + ' ' + DIFFICULTY_SHARED_PROMPT;
+  if(mode === 'dynamic' && recentScores && recentScores.length >= 2){
+    const avg = Math.round(recentScores.reduce((a,b)=>a+b,0)/recentScores.length);
+    difficultyNote += ' (This tier was auto-selected because the student\'s recent average is ' + avg + '%.)';
   }
   const prompt = [
     'Write a fresh practice quiz for a ' + (level==='college'?'college':'high school') + ' student on "' + title + '", based only on this notes summary:',
@@ -974,7 +1001,7 @@ async function generateQuizOnly({ title, notesSummary, level, count, types, rece
     '',
     notesSummary,
     '',
-    difficultyNote ? 'Adaptive difficulty instruction: ' + difficultyNote : '',
+    'Difficulty instruction: ' + difficultyNote,
     'IMPORTANT: All text MUST be entirely in ' + targetLang + '.',
     '',
     'Produce a JSON object: { "quiz": [ { "type": one of ["multiple_choice","true_false","short_answer","fill_blank"], "topic": string, "question": string, "options": [string] (4, only for multiple_choice), "answer": string, "explanation": string } ] }',
@@ -1499,7 +1526,7 @@ function renderDashboard(){
       (sets.length === 0 ? 
         '<div class="ledger-empty">No study sets yet. Click <strong>New study set</strong> above to create one from your notes or files.</div>' :
         sets.map(s => {
-          const diff = adaptiveDifficultyNote(s);
+          const diff = difficultyDisplay(s);
           return (
           '<div class="ledger-row clickable" data-open-set="' + s.id + '">' +
             '<div>' +
@@ -2186,8 +2213,8 @@ const QUIZ_COUNT_OPTIONS = [5,10,15,20,25,30];
 function renderTabQuiz(set){
   const sess = S.quizSession;
   if(!sess){
-    const diff = adaptiveDifficultyNote(set);
-    const qs = set.quizSettings || { count: 10, types: Object.keys(TYPE_LABELS), timerMode: 'none' };
+    const diff = difficultyDisplay(set);
+    const qs = set.quizSettings || { count: 10, types: Object.keys(TYPE_LABELS), timerMode: 'none', difficultyMode: 'dynamic' };
     const rec = recommendTimerMinutes(qs.count || 10);
     return (
       '<div>' +
@@ -2199,6 +2226,15 @@ function renderTabQuiz(set){
               '<label class="field-label">Number of questions</label>' +
               '<select id="quiz-count">' +
                 QUIZ_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((qs.count||10)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="field">' +
+              '<label class="field-label">Difficulty</label>' +
+              '<select id="quiz-difficulty">' +
+                '<option value="dynamic" ' + ((qs.difficultyMode||'dynamic')==='dynamic'?'selected':'') + '>Dynamic (auto-adjusts to your scores)</option>' +
+                '<option value="easy" ' + (qs.difficultyMode==='easy'?'selected':'') + '>Easy</option>' +
+                '<option value="medium" ' + (qs.difficultyMode==='medium'?'selected':'') + '>Medium</option>' +
+                '<option value="hard" ' + (qs.difficultyMode==='hard'?'selected':'') + '>Hard</option>' +
               '</select>' +
             '</div>' +
             renderTimerSetting('quiz', rec, qs.timerMode, qs.timerCustom) +
@@ -3042,13 +3078,14 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       const count = parseInt(document.getElementById('quiz-count').value);
       const types = Array.from(document.querySelectorAll('.quiz-type-check:checked')).map(el=>el.value);
       if(types.length === 0){ alert('Choose at least one question type.'); return; }
+      const difficultyMode = document.getElementById('quiz-difficulty').value;
       const rec = recommendTimerMinutes(count);
       const timerMode = document.getElementById('quiz-timer-mode').value;
       const timerCustomEl = document.getElementById('quiz-timer-custom');
       const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
       const timerMinutes = resolveTimerMinutes('quiz', rec);
 
-      const quizSettings = { count, types, timerMode, timerCustom };
+      const quizSettings = { count, types, timerMode, timerCustom, difficultyMode };
       await persistSetSettings(set, { quizSettings });
 
       S.loading = true;
@@ -3060,7 +3097,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           title: set.title,
           notesSummary: set.notesSummary,
           level: S.profile.level,
-          count, types, recentScores
+          count, types, recentScores, difficultyMode
         });
         S.quizSession = {
           questions,
