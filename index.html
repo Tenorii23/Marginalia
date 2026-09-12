@@ -1335,17 +1335,13 @@ function esc(s){
 }
 
 function renderTopbar(){
-  const level = S.profile?.level === 'college' ? 'College' : 'High school';
   return (
     '<div class="topbar">' +
       '<div class="wordmark">Marginalia<small>study notes, quizzes, tests</small></div>' +
       '<div class="topnav">' +
-        '<span class="level-badge">' + level + '</span>' +
         '<button class="linklike" data-nav="dashboard">Study sets</button>' +
         '<button class="linklike" data-nav="stats">Stats</button>' +
         '<button class="linklike" data-nav="settings">Settings</button>' +
-        '<button class="linklike" id="btn-dark-mode">' + (S.darkMode ? 'Light Mode' : 'Dark Mode') + '</button>' +
-        '<button class="linklike" id="btn-logout">Log out</button>' +
         '<button class="btn btn-sm btn-primary" data-nav="newset">New study set</button>' +
       '</div>' +
     '</div>'
@@ -1454,6 +1450,13 @@ function renderSettings(){
       '<input type="text" id="set-name" value="' + esc(S.profile.name) + '" />' +
     '</div>' +
     '<div class="field">' +
+      '<label class="field-label">Appearance</label>' +
+      '<div class="choice-row">' +
+        '<button class="choice-pill ' + (!S.darkMode?'selected':'') + '" id="btn-dark-mode-off">Light</button>' +
+        '<button class="choice-pill ' + (S.darkMode?'selected':'') + '" id="btn-dark-mode-on">Dark</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="field">' +
       '<label class="field-label">Studying at</label>' +
       '<div class="choice-row">' +
         '<button class="choice-pill ' + (S.profile.level==='highschool'?'selected':'') + '" data-set-level="highschool">High school</button>' +
@@ -1503,6 +1506,11 @@ function renderSettings(){
       '<label class="field-label">Data Backup</label>' +
       '<button type="button" class="btn btn-quiet btn-sm" id="btn-export-json">Export Data to JSON Backup</button>' +
       '<div class="field-hint">Downloads all your study sets and profile as a JSON backup file to your computer.</div>' +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field">' +
+      '<label class="field-label">Account</label>' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="btn-logout">Log out</button>' +
     '</div>' +
     '<div style="display:flex; gap:var(--sp-3); margin-top:var(--sp-6)">' +
       '<button class="btn btn-primary" id="settings-save">Save settings</button>' +
@@ -2539,10 +2547,19 @@ function bindEvents(){
     };
   }
 
-  const darkBtn = document.getElementById('btn-dark-mode');
-  if(darkBtn){
-    darkBtn.onclick = ()=>{
-      S.darkMode = !S.darkMode;
+  const darkBtnOff = document.getElementById('btn-dark-mode-off');
+  if(darkBtnOff){
+    darkBtnOff.onclick = ()=>{
+      S.darkMode = false;
+      localStorage.setItem('darkMode', S.darkMode);
+      applyDarkMode();
+      render();
+    };
+  }
+  const darkBtnOn = document.getElementById('btn-dark-mode-on');
+  if(darkBtnOn){
+    darkBtnOn.onclick = ()=>{
+      S.darkMode = true;
       localStorage.setItem('darkMode', S.darkMode);
       applyDarkMode();
       render();
