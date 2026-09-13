@@ -441,6 +441,7 @@ const S = {
   tutorDrawer: null,
   examBuilderSelectedIds: [],
   comprehensiveSession: null,
+  customTestSession: null,
   // dashboard organization: search / tag filter / grouping / inline tag editor
   dashboardSearch: '',
   dashboardActiveTags: [],
@@ -566,6 +567,7 @@ async function loadAll(){
           tags: Array.isArray(s.tags) ? s.tags : [],
           quizSettings: s.quiz_settings || null,
           testSettings: s.test_settings || null,
+          customTestSettings: s.customtest_settings || null,
           createdAt: new Date(s.created_at).getTime(),
           updatedAt: new Date(s.updated_at).getTime(),
           stickyNotes: (snRes.data || []).map(sn => ({
@@ -1178,6 +1180,7 @@ async function persistSetSettings(set, patch){
   const dbPatch = {};
   if('quizSettings' in patch) dbPatch.quiz_settings = patch.quizSettings;
   if('testSettings' in patch) dbPatch.test_settings = patch.testSettings;
+  if('customTestSettings' in patch) dbPatch.customtest_settings = patch.customTestSettings;
   if('tags' in patch) dbPatch.tags = patch.tags;
   if(Object.keys(dbPatch).length){
     await S.supabaseClient.from('study_sets').update(dbPatch).eq('id', set.id);
@@ -1209,6 +1212,37 @@ async function generateTest({ title, notesSummary, level, count, leniency, perso
     'Respond with JSON only.',
   ].filter(Boolean).join('\n');
   return callGemini([{ text: prompt }]);
+}
+
+async function generateCustomTest({ title, notesSummary, level, count, types, leniency, persona }){
+  const targetLang = getTargetLang();
+  const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
+  const leniencyNote = {
+    strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
+    standard: 'Grading will be STANDARD — write rubrics that reward solid understanding without demanding perfect wording.',
+    lenient: 'Grading will be LENIENT — write rubrics focused on core understanding, forgiving of minor gaps or imprecision.'
+  }[leniency || 'standard'];
+  const personaNote = persona && persona.trim() ? ('Write questions in the voice/spirit of this examiner persona: "' + persona.trim() + '".') : '';
+  const prompt = [
+    'Write a formal, point-graded test for a ' + (level==='college'?'college':'high school') + ' student, based only on the following study material summary for "' + title + '":',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    leniencyNote,
+    personaNote,
+    '',
+    notesSummary,
+    '',
+    'IMPORTANT: Write all test questions, rubrics, options, and related text entirely in ' + targetLang + '.',
+    'Produce a JSON object: { "questions": [ { "type": one of [' + types.map(t=>'"'+t+'"').join(', ') + '], "question": string, "options": [string] (exactly 4, ONLY for multiple_choice), "answer": string, "rubric": string, "points": number } ] }.',
+    'Use only these question types: ' + typeList + '. Distribute them roughly evenly across the set.',
+    'For every question type, "answer" is the exact correct answer (for multiple_choice, exactly matching one of the options; for true_false, "True" or "False"; for fill_blank, the missing word/phrase; for short_answer, a model correct answer).',
+    'The "rubric" field should briefly describe what a full-credit answer needs to include, for grading purposes later; do not show it to the student. For multiple_choice and true_false, the rubric can simply restate why the correct answer is right.',
+    'For fill_blank, use "_____" in the question text for the blank.',
+    'Write exactly ' + count + ' questions total. Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  const res = await callGemini([{ text: prompt }]);
+  return res.questions;
 }
 
 async function gradeTest(items, { level, leniency, spellingLenient, persona } = {}){
@@ -1329,13 +1363,13 @@ function buildTutorContextPrefix(ctx){
 }
 
 function openTutorDrawer(source, idx){
-  const sess = source === 'quiz' ? S.quizSession : S.testSession;
+  const sess = source === 'quiz' ? S.quizSession : source === 'customtest' ? S.customTestSession : S.testSession;
   if(!sess) return;
   const q = sess.questions[idx];
   const context = {
     source,
     question: q.question,
-    rubricOrAnswer: source === 'test' ? q.rubric : q.answer,
+    rubricOrAnswer: (source === 'test' || source === 'customtest') ? q.rubric : q.answer,
     userAnswer: sess.answers[idx]
   };
   S.tutorDrawer = { context, messages: [], loading: false };
@@ -1810,7 +1844,7 @@ function renderStatsPage(){
   const totalAttempts = entries.length;
   const overallAvg = Math.round(entries.reduce((a,e)=>a+e.pct,0) / totalAttempts);
   const quizEntries = entries.filter(e=>e.type==='quiz');
-  const testEntries = entries.filter(e=>e.type==='test' || e.type==='comprehensive');
+  const testEntries = entries.filter(e=>e.type==='test' || e.type==='comprehensive' || e.type==='customtest');
   const quizAvg = quizEntries.length ? Math.round(quizEntries.reduce((a,e)=>a+e.pct,0)/quizEntries.length) : null;
   const testAvg = testEntries.length ? Math.round(testEntries.reduce((a,e)=>a+e.pct,0)/testEntries.length) : null;
 
@@ -1961,7 +1995,7 @@ function initStatsCharts(){
   }
 
   const quizEntries = entries.filter(e=>e.type==='quiz');
-  const testEntries = entries.filter(e=>e.type==='test' || e.type==='comprehensive');
+  const testEntries = entries.filter(e=>e.type==='test' || e.type==='comprehensive' || e.type==='customtest');
   const typeCanvas = document.getElementById('stats-type-chart');
   if(typeCanvas && quizEntries.length && testEntries.length){
     const quizAvg = Math.round(quizEntries.reduce((a,e)=>a+e.pct,0)/quizEntries.length);
@@ -2165,6 +2199,7 @@ function renderSet(){
         '<button class="tab ' + (tab==='notes'?'active':'') + '" data-set-tab="notes">Notes & Sticky Notes</button>' +
         '<button class="tab ' + (tab==='quiz'?'active':'') + '" data-set-tab="quiz">Practice Quiz</button>' +
         '<button class="tab ' + (tab==='test'?'active':'') + '" data-set-tab="test">Formal Test</button>' +
+        '<button class="tab ' + (tab==='customtest'?'active':'') + '" data-set-tab="customtest">Custom Test</button>' +
       '</div>' +
       renderSetTabContent(set, tab) +
     '</div>'
@@ -2176,6 +2211,7 @@ function renderSetTabContent(set, tab){
     case 'notes': return renderTabNotes(set);
     case 'quiz': return renderTabQuiz(set);
     case 'test': return renderTabTest(set);
+    case 'customtest': return renderTabCustomTest(set);
     default: return '';
   }
 }
@@ -2227,9 +2263,6 @@ function renderTabNotes(set){
 function escRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function exportSetToPdf(set){
-  const win = window.open('', '_blank');
-  if(!win){ alert('Your browser blocked the print window. Allow pop-ups for this site and try again.'); return; }
-
   const notesHtml = (set.stickyNotes || []).map(sn => (
     '<div class="pdf-card">' +
       '<h4>' + esc(sn.title) + '</h4>' +
@@ -2263,13 +2296,24 @@ function exportSetToPdf(set){
     '<h2>Notes Summary</h2>',
     '<div class="summary">' + esc(set.notesSummary || '') + '</div>',
     (notesHtml ? ('<h2>Revision Sticky Notes</h2><div class="pdf-grid">' + notesHtml + '</div>') : ''),
+    // Auto-print lives INSIDE the generated page itself (not the opener) so it
+    // reliably fires regardless of cross-window timing/communication quirks.
+    '<scr' + 'ipt>window.addEventListener("load", function(){ setTimeout(function(){ window.print(); }, 350); });</scr' + 'ipt>',
     '</body></html>'
   ].join('');
 
-  win.document.open();
-  win.document.write(doc);
-  win.document.close();
-  setTimeout(() => { try{ win.focus(); win.print(); }catch(e){} }, 400);
+  // A Blob URL is far more reliable across browsers than window.open('',...)
+  // + document.write(), which several modern browsers (Safari, recent Chrome)
+  // will silently render as a blank tab.
+  const blob = new Blob([doc], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if(!win){
+    alert('Your browser blocked the export tab. Allow pop-ups for this site and try again.');
+    URL.revokeObjectURL(url);
+    return;
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function renderClozeSummary(set){
@@ -2394,14 +2438,36 @@ function checkAndNotifyDueCards(force){
  *  placeholder text and no daily throttle / due-card requirement, purely so
  *  you can confirm notifications actually show up and look right. */
 function sendTestNotification(){
-  if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  try{
-    const notif = new Notification('Marginalia - Test Notification', {
-      body: 'Lorem ipsum dolor sit amet — this is just a placeholder to test how notifications look. You have 12 cards due for review.',
-      tag: 'test-notification'
+  if(typeof Notification === 'undefined'){
+    alert('Notifications aren\'t supported in this browser.');
+    return;
+  }
+  if(Notification.permission === 'denied'){
+    alert('Notifications are blocked for this site. Enable them in your browser\'s site settings, then try again.');
+    return;
+  }
+  const fire = () => {
+    try{
+      const notif = new Notification('Marginalia - Test Notification', {
+        body: 'Lorem ipsum dolor sit amet — this is just a placeholder to test how notifications look. You have 12 cards due for review.',
+        tag: 'test-notification'
+      });
+      notif.onclick = () => { window.focus(); notif.close(); };
+    }catch(e){
+      console.error('Test notification failed', e);
+      alert('Could not show the notification: ' + e.message);
+    }
+  };
+  if(Notification.permission === 'granted'){
+    fire();
+  } else {
+    // permission is 'default' - the toggle may have been left on from a
+    // previous session/device without an actual granted permission here
+    Notification.requestPermission().then(perm => {
+      if(perm === 'granted') fire();
+      else alert('Notification permission was not granted, so nothing was shown.');
     });
-    notif.onclick = () => { window.focus(); notif.close(); };
-  }catch(e){ console.error('Test notification failed', e); }
+  }
 }
 
 function handleDailyReviewGrade(gotIt){
@@ -2707,6 +2773,150 @@ function renderTabTest(set){
   );
 }
 
+function renderTabCustomTest(set){
+  const sess = S.customTestSession;
+  if(!sess){
+    const ts = set.customTestSettings || { count: 10, types: Object.keys(TYPE_LABELS), leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none' };
+    const rec = recommendTimerMinutes(ts.count || 10);
+    return (
+      '<div>' +
+        '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">A point-graded, AI-graded test like Formal Test (partial credit, rubric-based) &mdash; but you choose the question types, like Practice Quiz.</p>' +
+        '<div class="setup-panel">' +
+          '<div class="setup-grid">' +
+            '<div class="field">' +
+              '<label class="field-label">Number of questions</label>' +
+              '<select id="ctest-count">' +
+                TEST_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((ts.count||10)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
+                '<option value="custom" ' + (!TEST_COUNT_OPTIONS.includes(ts.count)?'selected':'') + '>Custom&hellip;</option>' +
+              '</select>' +
+              '<input type="number" id="ctest-count-custom" min="1" max="100" value="' + (!TEST_COUNT_OPTIONS.includes(ts.count) ? ts.count : '') + '" placeholder="e.g. 50" style="margin-top:8px; display:' + (!TEST_COUNT_OPTIONS.includes(ts.count)?'block':'none') + ';" />' +
+            '</div>' +
+            '<div class="field">' +
+              '<label class="field-label">Grading leniency</label>' +
+              '<select id="ctest-leniency">' +
+                '<option value="strict" ' + (ts.leniency==='strict'?'selected':'') + '>Strict &mdash; precise answers required</option>' +
+                '<option value="standard" ' + ((ts.leniency||'standard')==='standard'?'selected':'') + '>Standard &mdash; fair partial credit</option>' +
+                '<option value="lenient" ' + (ts.leniency==='lenient'?'selected':'') + '>Lenient &mdash; generous partial credit</option>' +
+              '</select>' +
+            '</div>' +
+            renderTimerSetting('ctest', rec, ts.timerMode, ts.timerCustom) +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Question types</label>' +
+            '<div class="type-check-row">' +
+              Object.keys(TYPE_LABELS).map(t => (
+                '<label><input type="checkbox" class="ctest-type-check" value="' + t + '" ' + ((ts.types||Object.keys(TYPE_LABELS)).includes(t)?'checked':'') + ' /> ' + TYPE_LABELS[t] + '</label>'
+              )).join('') +
+            '</div>' +
+            '<div class="field-hint">Multiple choice &amp; true/false are graded full-or-nothing (they\'re inherently binary). Short answer &amp; fill in the blank get AI partial credit, same as Formal Test.</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="ctest-spelling" ' + (ts.spellingLenient!==false?'checked':'') + ' /> Ignore minor spelling &amp; grammar mistakes when grading</label>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Examiner persona <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+            '<input type="text" id="ctest-persona" value="' + esc(ts.persona||'') + '" placeholder="e.g. a tough but fair professor, a warm and encouraging TA..." />' +
+          '</div>' +
+          '<button class="btn btn-primary" id="generate-ctest" style="margin-top:var(--sp-2);">Generate custom test</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+  if(sess.submitted){
+    const pts = sess.pointsEarned;
+    const maxPts = sess.totalPoints;
+    const pct = Math.round((pts / maxPts) * 100);
+    const letter = letterFor(pct);
+    return (
+      '<div>' +
+        '<div class="score-block">' +
+          '<div class="score-num">' + pts.toFixed(1) + ' / ' + maxPts + ' pts</div>' +
+          '<div class="score-label">CUSTOM TEST SCORE &nbsp;&bull;&nbsp; ' + pct + '%</div>' +
+          '<div class="score-letter">Grade: ' + letter + '</div>' +
+        '</div>' +
+        '<div style="margin-bottom:var(--sp-5); display:flex; gap:var(--sp-3);">' +
+          '<button class="btn btn-primary" id="discard-ctest">Set up another test</button>' +
+        '</div>' +
+        renderCustomTestReview(sess) +
+      '</div>'
+    );
+  }
+  const answeredCount = Object.keys(sess.answers).filter(k => (sess.answers[k]||'').toString().trim() !== '').length;
+  return (
+    '<div>' +
+      '<div class="quiz-progress">' +
+        '<div class="quiz-progress-label"><span id="ctp-text">' + answeredCount + ' of ' + sess.questions.length + ' answered</span>' +
+          (sess.timerTotalSeconds ? '<span id="timer-display" class="timer-pin">' + formatTimer(sess.timerRemaining) + '</span>' : '<span>Custom Test</span>') +
+        '</div>' +
+      '</div>' +
+      sess.questions.map((q, i) => renderCustomTestQuestionInput(q, i, sess.answers[i])).join('') +
+      '<div style="margin-top:var(--sp-6);">' +
+        '<button class="btn btn-primary" id="submit-ctest">Submit test for grading</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderCustomTestQuestionInput(q, i, userAns){
+  userAns = userAns || '';
+  const ptsLabel = '<span style="color:var(--ink-faint); font-weight:400;">&bull; ' + q.points + ' pts</span>';
+  if(q.type === 'multiple_choice'){
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; MULTIPLE CHOICE ' + ptsLabel + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div class="checkbox-row">' +
+          (q.options||[]).map(opt => (
+            '<label class="opt"><input type="radio" name="ct_' + i + '" value="' + esc(opt) + '" ' + (userAns===opt?'checked':'') + ' /> ' + esc(opt) + '</label>'
+          )).join('') +
+        '</div>' +
+      '</div>'
+    );
+  }
+  if(q.type === 'true_false'){
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; TRUE OR FALSE ' + ptsLabel + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div class="checkbox-row">' +
+          '<label class="opt"><input type="radio" name="ct_' + i + '" value="True" ' + (userAns==='True'?'checked':'') + ' /> True</label>' +
+          '<label class="opt"><input type="radio" name="ct_' + i + '" value="False" ' + (userAns==='False'?'checked':'') + ' /> False</label>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+  return (
+    '<div class="qcard">' +
+      '<div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + ' ' + ptsLabel + '</div>' +
+      '<div class="qtext">' + esc(q.question) + '</div>' +
+      '<input type="text" class="ctest-text-in" data-qidx="' + i + '" value="' + esc(userAns) + '" placeholder="Your answer..." />' +
+    '</div>'
+  );
+}
+
+function renderCustomTestReview(sess){
+  return sess.questions.map((q, i) => {
+    const res = sess.gradedResults[i] || { pointsEarned: 0, feedback: '' };
+    const earned = res.pointsEarned;
+    const max = q.points;
+    const partial = earned > 0 && earned < max;
+    const tagClass = earned >= max ? 'correct' : partial ? 'partial' : 'incorrect';
+    const tagText = earned.toFixed(1) + ' / ' + max + ' PTS';
+    const isObjective = q.type === 'multiple_choice' || q.type === 'true_false';
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; <span class="result-tag ' + tagClass + '">' + tagText + '</span> &bull; ' + q.type.toUpperCase().replace('_',' ') + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div style="font-size:13.5px; margin-bottom:4px;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
+        (isObjective && earned < max ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + '</strong></div>' : '') +
+        (res.feedback ? '<div class="feedback-line">' + esc(res.feedback) + '</div>' : '') +
+        (q.rubric ? ('<details class="rubric-reveal"><summary>Show grading rubric</summary><div class="rubric-body">' + esc(q.rubric) + '</div></details>') : '') +
+        (earned < max ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="customtest" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
+      '</div>'
+    );
+  }).join('');
+}
+
 function renderTestQuestionsReview(sess){
   return sess.questions.map((q, i) => {
     const res = sess.gradedResults[i] || { pointsEarned: 0, feedback: '' };
@@ -2755,6 +2965,14 @@ function updateQuizProgressBar(){
   const text = document.getElementById('qp-text');
   if(fill) fill.style.width = Math.round(answered/total*100) + '%';
   if(text) text.textContent = answered + ' of ' + total + ' answered';
+}
+
+function updateCustomTestProgressText(){
+  const sess = S.customTestSession;
+  if(!sess || sess.submitted) return;
+  const answered = Object.keys(sess.answers).filter(k => (sess.answers[k]||'').toString().trim() !== '').length;
+  const text = document.getElementById('ctp-text');
+  if(text) text.textContent = answered + ' of ' + sess.questions.length + ' answered';
 }
 
 function bindEvents(){
@@ -3176,7 +3394,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       S.currentTab = 'notes';
       S.quizSession = null;
       S.testSession = null;
-      S.notesMode = 'grid';
+      S.customTestSession = null;
       S.flashcardIdx = 0;
       S.flashcardFlipped = false;
       S.flashcardDone = [];
@@ -3486,7 +3704,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
   const drReview = document.getElementById('dr-review');
   if(drReview){ drReview.onclick = () => handleDailyReviewGrade(false); }
 
-  ['quiz-timer-mode','test-timer-mode'].forEach(id => {
+  ['quiz-timer-mode','test-timer-mode','ctest-timer-mode'].forEach(id => {
     const sel = document.getElementById(id);
     if(sel){
       sel.onchange = () => {
@@ -3501,6 +3719,13 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     testCountSel.onchange = () => {
       const customInput = document.getElementById('test-count-custom');
       if(customInput) customInput.style.display = testCountSel.value === 'custom' ? 'block' : 'none';
+    };
+  }
+  const ctestCountSel = document.getElementById('ctest-count');
+  if(ctestCountSel){
+    ctestCountSel.onchange = () => {
+      const customInput = document.getElementById('ctest-count-custom');
+      if(customInput) customInput.style.display = ctestCountSel.value === 'custom' ? 'block' : 'none';
     };
   }
 
@@ -3949,6 +4174,164 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         if(!set.history) set.history = [];
         const newHist = {
           type: 'test',
+          timestamp: Date.now(),
+          scoreText: pointsEarned.toFixed(1) + '/' + sess.totalPoints,
+          pct,
+          letter
+        };
+        set.history.push(newHist);
+
+        if(S.supabaseClient){
+          const { data: { session } } = await S.supabaseClient.auth.getSession();
+          if(session){
+            await S.supabaseClient.from('history').insert({
+              study_set_id: set.id,
+              user_id: session.user.id,
+              type: newHist.type,
+              score_text: newHist.scoreText,
+              pct: newHist.pct,
+              letter: newHist.letter,
+              timestamp: newHist.timestamp
+            });
+          }
+        }
+
+        await saveStudySet(set);
+      }catch(e){
+        alert('Test grading failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+  const generateCtestBtn = document.getElementById('generate-ctest');
+  if(generateCtestBtn){
+    generateCtestBtn.onclick = async () => {
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      const countSelVal = document.getElementById('ctest-count').value;
+      const count = countSelVal === 'custom' ? (parseInt(document.getElementById('ctest-count-custom').value) || 10) : parseInt(countSelVal);
+      const types = Array.from(document.querySelectorAll('.ctest-type-check:checked')).map(el=>el.value);
+      if(types.length === 0){ alert('Choose at least one question type.'); return; }
+      const leniency = document.getElementById('ctest-leniency').value;
+      const spellingLenient = document.getElementById('ctest-spelling').checked;
+      const persona = document.getElementById('ctest-persona').value.trim();
+      const rec = recommendTimerMinutes(count);
+      const timerMode = document.getElementById('ctest-timer-mode').value;
+      const timerCustomEl = document.getElementById('ctest-timer-custom');
+      const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
+      const timerMinutes = resolveTimerMinutes('ctest', rec);
+
+      const customTestSettings = { count, types, leniency, spellingLenient, persona, timerMode, timerCustom };
+      await persistSetSettings(set, { customTestSettings });
+
+      S.loading = true;
+      S.loadingMsg = 'Generating formal test...';
+      render();
+
+      try{
+        const questions = await generateCustomTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, count, types, leniency, persona });
+        const totalPoints = questions.reduce((acc,q)=>acc+q.points, 0);
+        S.customTestSession = {
+          questions,
+          totalPoints,
+          answers: {},
+          submitted: false,
+          pointsEarned: 0,
+          gradedResults: [],
+          leniency, spellingLenient, persona,
+          timerTotalSeconds: timerMinutes ? timerMinutes*60 : null,
+          timerRemaining: timerMinutes ? timerMinutes*60 : null
+        };
+        if(timerMinutes){
+          startSessionTimer(S.customTestSession, () => {
+            const btn = document.getElementById('submit-ctest');
+            if(btn) btn.click();
+          });
+        }
+      }catch(e){
+        alert('Custom test generation failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  const discardCtestBtn = document.getElementById('discard-ctest');
+  if(discardCtestBtn){
+    discardCtestBtn.onclick = () => {
+      clearActiveTimer();
+      S.customTestSession = null;
+      render();
+    };
+  }
+
+  document.querySelectorAll('input[name^="ct_"]').forEach(el => {
+    el.onchange = (e) => {
+      const qidx = parseInt(e.target.name.replace('ct_',''));
+      if(S.customTestSession) S.customTestSession.answers[qidx] = e.target.value;
+      updateCustomTestProgressText();
+    };
+  });
+  document.querySelectorAll('.ctest-text-in').forEach(el => {
+    el.oninput = (e) => {
+      const qidx = parseInt(e.target.getAttribute('data-qidx'));
+      if(S.customTestSession) S.customTestSession.answers[qidx] = e.target.value;
+      updateCustomTestProgressText();
+    };
+  });
+
+  const submitCtestBtn = document.getElementById('submit-ctest');
+  if(submitCtestBtn){
+    submitCtestBtn.onclick = async () => {
+      const sess = S.customTestSession;
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      clearActiveTimer();
+
+      S.loading = true;
+      S.loadingMsg = 'Grading test responses...';
+      render();
+
+      try{
+        // Objective types (multiple_choice / true_false) are graded instantly,
+        // full-or-nothing, same as Practice Quiz. Only open-ended types go
+        // through AI partial-credit grading, same as Formal Test.
+        const subjectiveIdxs = [];
+        const subjectiveItems = [];
+        const gradedResults = new Array(sess.questions.length);
+
+        sess.questions.forEach((q, i) => {
+          const userAns = (sess.answers[i] || '').trim();
+          if(q.type === 'multiple_choice' || q.type === 'true_false'){
+            const correct = userAns.toLowerCase() === (q.answer||'').toLowerCase();
+            gradedResults[i] = { pointsEarned: correct ? q.points : 0, feedback: q.rubric || '' };
+          } else {
+            subjectiveIdxs.push(i);
+            subjectiveItems.push({ question: q.question, rubric: q.rubric, points: q.points, userAnswer: sess.answers[i] });
+          }
+        });
+
+        if(subjectiveItems.length > 0){
+          const graded = await gradeTest(subjectiveItems, { level: S.profile.level, leniency: sess.leniency, spellingLenient: sess.spellingLenient, persona: sess.persona });
+          subjectiveIdxs.forEach((qi, gi) => {
+            const g = graded[gi] || { pointsEarned: 0, feedback: '' };
+            const maxPts = sess.questions[qi].points;
+            const earned = Math.max(0, Math.min(maxPts, typeof g.pointsEarned === 'number' ? g.pointsEarned : 0));
+            gradedResults[qi] = { pointsEarned: earned, feedback: g.feedback };
+          });
+        }
+
+        const pointsEarned = gradedResults.reduce((acc,g)=>acc+g.pointsEarned, 0);
+        sess.pointsEarned = pointsEarned;
+        sess.submitted = true;
+        sess.gradedResults = gradedResults;
+
+        const pct = Math.round((pointsEarned / sess.totalPoints) * 100);
+        const letter = letterFor(pct);
+        if(!set.history) set.history = [];
+        const newHist = {
+          type: 'customtest',
           timestamp: Date.now(),
           scoreText: pointsEarned.toFixed(1) + '/' + sess.totalPoints,
           pct,
