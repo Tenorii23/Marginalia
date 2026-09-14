@@ -373,6 +373,17 @@
   .dash-actions{ display:flex; gap: var(--sp-3); margin-top: var(--sp-2); margin-bottom: var(--sp-6); flex-wrap:wrap; }
   .due-badge{ display:inline-block; background: var(--paper); color: var(--oxblood); border-radius:10px; padding:1px 7px; font-size:11px; font-family:var(--font-mono); margin-left:6px; }
 
+  /* ── Public Explore space ── */
+  .explore-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap: var(--sp-4); margin-top: var(--sp-4); }
+  .explore-card{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-4); cursor:pointer; transition: border-color 0.15s; }
+  .explore-card:hover{ border-color: var(--navy); }
+  .explore-card-top{ display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--sp-2); }
+  .explore-card h4{ font-family:var(--font-serif); font-size:15px; margin:4px 0 6px; }
+  .explore-meta{ font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); }
+  .explore-badge{ font-family:var(--font-mono); font-size:10px; padding:2px 7px; border:1px solid var(--green); color:var(--green); background:var(--green-wash); white-space:nowrap; }
+  .explore-badge.viewonly{ border-color:var(--amber); color:var(--amber); background:var(--amber-wash); }
+  .chip-cat{ font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); border:1px solid var(--rule-strong); padding:2px 7px; }
+
   /* ── Dashboard organization: search / tags / grouping ── */
   .dash-organize{ margin-bottom: var(--sp-5); }
   .dash-search-input{ width:100%; margin-bottom: var(--sp-3); }
@@ -440,6 +451,13 @@ const S = {
   activeRecallMode: false,
   tutorDrawer: null,
   examBuilderSelectedIds: [],
+  // public Explore space
+  exploreSets: [],
+  exploreLoading: false,
+  exploreSearch: '',
+  exploreDetailId: null,
+  publishPanelOpen: false,
+  publishCopyable: true,
   comprehensiveSession: null,
   customTestSession: null,
   // dashboard organization: search / tag filter / grouping / inline tag editor
@@ -1426,6 +1444,7 @@ function renderRoute(){
     case 'stats': return renderStatsPage();
     case 'examBuilder': return renderExamBuilder();
     case 'dailyreview': return renderDailyReview();
+    case 'explore': return renderExplore();
     default: return '';
   }
 }
@@ -1459,6 +1478,7 @@ function renderTopbar(){
       '<div class="wordmark">Marginalia<small>study notes, quizzes, tests</small></div>' +
       '<div class="topnav">' +
         '<button class="linklike" data-nav="dashboard">Study sets</button>' +
+        '<button class="linklike" data-nav="explore">Explore</button>' +
         '<button class="linklike" data-nav="stats">Stats</button>' +
         '<button class="linklike" data-nav="settings">Settings</button>' +
         '<button class="btn btn-sm btn-primary" data-nav="newset">New study set</button>' +
@@ -2145,6 +2165,155 @@ async function generateComprehensiveTest({ sets, level, count, leniency, persona
   return callGemini([{ text: prompt }]);
 }
 
+// ═══════════════════════ PUBLIC EXPLORE SPACE ═══════════════════════
+
+async function loadExploreSets(){
+  if(!S.supabaseClient) return;
+  S.exploreLoading = true;
+  render();
+  try{
+    let query = S.supabaseClient
+      .from('published_sets')
+      .select('id, author_id, author_name, title, category, notes_summary, sticky_notes, quiz, is_copyable, clone_count, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    const { data, error } = await query;
+    if(error) throw error;
+    S.exploreSets = data || [];
+  }catch(e){
+    console.error('Failed to load Explore sets', e);
+    S.exploreSets = [];
+  }finally{
+    S.exploreLoading = false;
+    render();
+  }
+}
+
+async function publishSetToExplore(set, isCopyable){
+  if(!S.supabaseClient) return;
+  const { data: { session } } = await S.supabaseClient.auth.getSession();
+  if(!session) return;
+  const row = {
+    author_id: session.user.id,
+    author_name: S.profile?.name || 'Anonymous',
+    original_set_id: set.id,
+    title: set.title,
+    category: set.category || 'General',
+    notes_summary: set.notesSummary || '',
+    sticky_notes: (set.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body })),
+    quiz: (set.quiz || []).map(q => ({ type: q.type, topic: q.topic, question: q.question, options: q.options || [], answer: q.answer, explanation: q.explanation || '' })),
+    is_copyable: isCopyable
+  };
+  const { error } = await S.supabaseClient.from('published_sets').insert(row);
+  if(error){ alert('Could not publish: ' + error.message); return; }
+  alert('Published to Explore' + (isCopyable ? '' : ' as view-only') + '. Anyone can find it under the Explore tab now.');
+  S.publishPanelOpen = false;
+  render();
+}
+
+async function cloneExploreSet(pub){
+  if(!confirm('Add "' + pub.title + '" to your study sets? You\'ll get your own independent copy you can edit, quiz on, and everything else.')) return;
+  const newSet = {
+    id: uid(),
+    title: pub.title,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    notesSummary: pub.notes_summary,
+    category: pub.category || 'General',
+    stickyNotes: (pub.sticky_notes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
+    quiz: pub.quiz || [],
+    history: []
+  };
+  S.loading = true;
+  S.loadingMsg = 'Reading materials & generating study set...';
+  render();
+  try{
+    await saveStudySet(newSet);
+    if(!S.statsSelectedSetIds) S.statsSelectedSetIds = [];
+    S.statsSelectedSetIds.push(newSet.id);
+    if(S.supabaseClient){
+      try{
+        await S.supabaseClient.from('published_sets').update({ clone_count: (pub.clone_count||0) + 1 }).eq('id', pub.id);
+      }catch(e){ /* non-critical */ }
+    }
+    S.currentSetId = newSet.id;
+    S.currentTab = 'notes';
+    S.route = 'set';
+  }catch(e){
+    alert('Could not add this set: ' + e.message);
+  }finally{
+    S.loading = false;
+    render();
+  }
+}
+
+function renderExplore(){
+  if(S.exploreDetailId){
+    const pub = S.exploreSets.find(p => p.id === S.exploreDetailId);
+    if(pub) return renderExploreDetail(pub);
+  }
+
+  const search = (S.exploreSearch || '').trim().toLowerCase();
+  const filtered = S.exploreSets.filter(p => {
+    if(!search) return true;
+    const hay = (p.title + ' ' + (p.category||'') + ' ' + (p.author_name||'')).toLowerCase();
+    return hay.includes(search);
+  });
+
+  return (
+    '<div class="section-heading"><h2>Explore</h2><span class="muted" style="font-size:13px">' + S.exploreSets.length + ' published set' + (S.exploreSets.length===1?'':'s') + '</span></div>' +
+    '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Browse study sets other people have published. Copyable ones you can add straight to your own study sets and use however you like; view-only ones you can still read through here.</p>' +
+    '<input type="text" class="dash-search-input" id="explore-search" placeholder="Search by title, subject, or author..." value="' + esc(S.exploreSearch||'') + '" />' +
+    (S.exploreLoading ? '<div class="stats-empty">Loading Explore...</div>' :
+      (filtered.length === 0 ? '<div class="stats-empty">' + (S.exploreSets.length===0 ? 'Nothing has been published yet. Be the first — open a study set and use "Publish to Explore" on its Notes tab.' : 'No published sets match your search.') + '</div>' :
+        '<div class="explore-grid">' +
+          filtered.map(p => (
+            '<div class="explore-card" data-view-explore="' + p.id + '">' +
+              '<div class="explore-card-top">' +
+                '<span class="chip-cat">' + esc(p.category||'General') + '</span>' +
+                (p.is_copyable ? '<span class="explore-badge copyable">Copyable</span>' : '<span class="explore-badge viewonly">View only</span>') +
+              '</div>' +
+              '<h4>' + esc(p.title) + '</h4>' +
+              '<div class="explore-meta">by ' + esc(p.author_name) + ' &bull; ' + (p.sticky_notes?.length||0) + ' notes &bull; ' + (p.quiz?.length||0) + ' quiz Qs' + (p.clone_count ? ' &bull; ' + p.clone_count + ' added' : '') + '</div>' +
+            '</div>'
+          )).join('') +
+        '</div>'
+      )
+    )
+  );
+}
+
+function renderExploreDetail(pub){
+  return (
+    '<button class="btn btn-quiet btn-sm" id="explore-back" style="margin-bottom:var(--sp-4);">&larr; Back to Explore</button>' +
+    '<div class="section-heading">' +
+      '<h2>' + esc(pub.title) + '</h2>' +
+      (pub.is_copyable ? '<span class="explore-badge copyable">Copyable</span>' : '<span class="explore-badge viewonly">View only</span>') +
+    '</div>' +
+    '<div class="explore-meta" style="margin-bottom:var(--sp-4);">' + esc(pub.category||'General') + ' &bull; by ' + esc(pub.author_name) + ' &bull; published ' + new Date(pub.created_at).toLocaleDateString() + '</div>' +
+    (pub.is_copyable
+      ? '<button class="btn btn-primary" data-clone-explore="' + pub.id + '" style="margin-bottom:var(--sp-5);">Add to My Study Sets</button>'
+      : '<div class="callout" style="margin-bottom:var(--sp-5); font-size:13px;">The author made this view-only &mdash; you can read through it here, but it can\'t be added to your own study sets.</div>'
+    ) +
+    '<h3 style="margin-bottom:var(--sp-3)">Notes Summary</h3>' +
+    '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px; margin-bottom:var(--sp-6);">' + esc(pub.notes_summary||'') + '</div>' +
+    (pub.sticky_notes && pub.sticky_notes.length ? (
+      '<h3 style="margin-bottom:var(--sp-3)">Sticky Notes</h3>' +
+      '<div class="notes-grid" style="margin-bottom:var(--sp-6);">' +
+        pub.sticky_notes.map(sn => '<div class="sticky"><h4>' + esc(sn.title) + '</h4><p>' + esc(sn.body) + '</p></div>').join('') +
+      '</div>'
+    ) : '') +
+    (pub.quiz && pub.quiz.length ? (
+      '<h3 style="margin-bottom:var(--sp-3)">Quiz Preview (' + pub.quiz.length + ' questions)</h3>' +
+      pub.quiz.slice(0, 5).map((q,i) => (
+        '<div class="qcard"><div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + TYPE_LABELS[q.type] + '</div><div class="qtext">' + esc(q.question) + '</div></div>'
+      )).join('') +
+      (pub.quiz.length > 5 ? '<p class="muted" style="font-size:13px;">+ ' + (pub.quiz.length-5) + ' more question' + (pub.quiz.length-5===1?'':'s') + '...</p>' : '')
+    ) : '')
+  );
+}
+
+
 function renderNewSet(){
   const d = S.newSet || { title:'', notesText:'', files:[], level: S.profile?.level||'college' };
   S.newSet = d;
@@ -2184,7 +2353,6 @@ function renderNewSet(){
     '</div>'
   );
 }
-
 function renderSet(){
   const set = S.studySets.find(s=>s.id===S.currentSetId);
   if(!set) return '<div>Study set not found.</div>';
@@ -2205,7 +2373,6 @@ function renderSet(){
     '</div>'
   );
 }
-
 function renderSetTabContent(set, tab){
   switch(tab){
     case 'notes': return renderTabNotes(set);
@@ -2221,9 +2388,26 @@ function renderTabNotes(set){
   const notes = set.stickyNotes || [];
   return (
     '<div>' +
-      '<div style="display:flex; justify-content:flex-end; margin-bottom:var(--sp-4);">' +
+      '<div style="display:flex; justify-content:flex-end; gap:var(--sp-3); margin-bottom:var(--sp-4);">' +
         '<button class="btn btn-quiet btn-sm" data-export-pdf="' + set.id + '">Export / Print PDF</button>' +
+        '<button class="btn btn-quiet btn-sm" id="toggle-publish-panel">Publish to Explore</button>' +
       '</div>' +
+      (S.publishPanelOpen ? (
+        '<div class="setup-panel" style="margin-bottom:var(--sp-5);">' +
+          '<div class="field">' +
+            '<label class="field-label">Visibility</label>' +
+            '<div class="choice-row">' +
+              '<button class="choice-pill ' + ((S.publishCopyable!==false)?'selected':'') + '" id="publish-copyable-on">Copyable &mdash; anyone can add it to their own study sets</button>' +
+            '</div>' +
+            '<div class="choice-row" style="margin-top:6px;">' +
+              '<button class="choice-pill ' + (S.publishCopyable===false?'selected':'') + '" id="publish-copyable-off">View only &mdash; others can read it but not copy it</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="field-hint" style="margin-bottom:var(--sp-3);">This publishes a snapshot of your current notes summary, sticky notes, and quiz questions. Later edits to this set won\'t update the published copy.</div>' +
+          '<button class="btn btn-primary btn-sm" id="confirm-publish">Publish</button>' +
+          '<button class="btn btn-quiet btn-sm" id="cancel-publish">Cancel</button>' +
+        '</div>'
+      ) : '') +
       '<div style="margin-bottom:var(--sp-6)">' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-3);">' +
           '<h3>Revision Sticky Notes</h3>' +
@@ -2438,36 +2622,14 @@ function checkAndNotifyDueCards(force){
  *  placeholder text and no daily throttle / due-card requirement, purely so
  *  you can confirm notifications actually show up and look right. */
 function sendTestNotification(){
-  if(typeof Notification === 'undefined'){
-    alert('Notifications aren\'t supported in this browser.');
-    return;
-  }
-  if(Notification.permission === 'denied'){
-    alert('Notifications are blocked for this site. Enable them in your browser\'s site settings, then try again.');
-    return;
-  }
-  const fire = () => {
-    try{
-      const notif = new Notification('Marginalia - Test Notification', {
-        body: 'Lorem ipsum dolor sit amet — this is just a placeholder to test how notifications look. You have 12 cards due for review.',
-        tag: 'test-notification'
-      });
-      notif.onclick = () => { window.focus(); notif.close(); };
-    }catch(e){
-      console.error('Test notification failed', e);
-      alert('Could not show the notification: ' + e.message);
-    }
-  };
-  if(Notification.permission === 'granted'){
-    fire();
-  } else {
-    // permission is 'default' - the toggle may have been left on from a
-    // previous session/device without an actual granted permission here
-    Notification.requestPermission().then(perm => {
-      if(perm === 'granted') fire();
-      else alert('Notification permission was not granted, so nothing was shown.');
+  if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try{
+    const notif = new Notification('Marginalia - Test Notification', {
+      body: 'Lorem ipsum dolor sit amet — this is just a placeholder to test how notifications look. You have 12 cards due for review.',
+      tag: 'test-notification'
     });
-  }
+    notif.onclick = () => { window.focus(); notif.close(); };
+  }catch(e){ console.error('Test notification failed', e); }
 }
 
 function handleDailyReviewGrade(gotIt){
@@ -3130,6 +3292,11 @@ function bindEvents(){
         S.route = 'dailyreview';
         S.dailyReviewQueue = computeDueCards(S.studySets).slice(0, 15);
       }
+      else if(target === 'explore'){
+        S.route = 'explore';
+        S.exploreDetailId = null;
+        loadExploreSets();
+      }
       render();
     };
   });
@@ -3424,6 +3591,63 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     const val = dashSearch.value;
     dashSearch.focus();
     dashSearch.setSelectionRange(val.length, val.length);
+  }
+
+  const exploreSearch = document.getElementById('explore-search');
+  if(exploreSearch){
+    exploreSearch.oninput = (e) => {
+      S.exploreSearch = e.target.value;
+      render();
+    };
+    const val = exploreSearch.value;
+    exploreSearch.focus();
+    exploreSearch.setSelectionRange(val.length, val.length);
+  }
+  document.querySelectorAll('[data-view-explore]').forEach(el => {
+    el.onclick = (e) => {
+      S.exploreDetailId = e.currentTarget.getAttribute('data-view-explore');
+      render();
+    };
+  });
+  const exploreBack = document.getElementById('explore-back');
+  if(exploreBack){
+    exploreBack.onclick = () => { S.exploreDetailId = null; render(); };
+  }
+  document.querySelectorAll('[data-clone-explore]').forEach(el => {
+    el.onclick = (e) => {
+      const pub = S.exploreSets.find(p => p.id === e.currentTarget.getAttribute('data-clone-explore'));
+      if(pub) cloneExploreSet(pub);
+    };
+  });
+
+  const togglePublishPanel = document.getElementById('toggle-publish-panel');
+  if(togglePublishPanel){
+    togglePublishPanel.onclick = () => {
+      S.publishPanelOpen = !S.publishPanelOpen;
+      render();
+    };
+  }
+  const publishCopyableOn = document.getElementById('publish-copyable-on');
+  if(publishCopyableOn){
+    publishCopyableOn.onclick = () => { S.publishCopyable = true; render(); };
+  }
+  const publishCopyableOff = document.getElementById('publish-copyable-off');
+  if(publishCopyableOff){
+    publishCopyableOff.onclick = () => { S.publishCopyable = false; render(); };
+  }
+  const cancelPublish = document.getElementById('cancel-publish');
+  if(cancelPublish){
+    cancelPublish.onclick = () => { S.publishPanelOpen = false; render(); };
+  }
+  const confirmPublish = document.getElementById('confirm-publish');
+  if(confirmPublish){
+    confirmPublish.onclick = async () => {
+      const set = S.studySets.find(s => s.id === S.currentSetId);
+      if(!set) return;
+      confirmPublish.disabled = true;
+      confirmPublish.textContent = 'Publishing...';
+      await publishSetToExplore(set, S.publishCopyable !== false);
+    };
   }
 
   document.querySelectorAll('[data-tag-filter]').forEach(el => {
