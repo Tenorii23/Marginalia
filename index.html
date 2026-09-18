@@ -160,6 +160,11 @@
   .qcard{ border-top: 1px solid var(--rule); padding: var(--sp-5) 0; }
   .qcard:last-child{ border-bottom: 1px solid var(--rule); }
   .qnum{ font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint); margin-bottom: var(--sp-2); }
+  .qnum-row{ display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--sp-2); gap: var(--sp-3); }
+  .qnum-row .qnum{ margin-bottom:0; }
+  .regen-btn{ background:none; border:none; color:var(--ink-faint); font-family:var(--font-mono); font-size:11px; cursor:pointer; white-space:nowrap; padding:0; transition: color 0.15s ease; }
+  .regen-btn:hover{ color:var(--navy); }
+  .regen-btn:disabled{ color:var(--ink-faint); cursor:default; font-style:italic; }
   .qtext{ font-size: 15px; margin-bottom: var(--sp-3); }
   .opt{ display:flex; align-items:center; gap: var(--sp-3); padding: 8px 0; font-size: 14px; }
   .opt input{ accent-color: var(--oxblood); width:16px; height:16px; }
@@ -186,6 +191,12 @@
   .callout{ border: 1px solid var(--rule-strong); background: var(--paper-raised); padding: var(--sp-4); font-size: 13px; color: var(--ink-soft); }
   .callout.warn{ border-color: var(--amber); background: var(--amber-wash); color: #5c4711; }
   .callout.error{ border-color: var(--oxblood); background: var(--oxblood-wash); color: var(--oxblood-dark); }
+  .callout.success{ border-color: var(--green); background: var(--green-wash); color: var(--green); }
+  .danger-zone{ }
+  .danger-btn{ border-color: var(--oxblood); color: var(--oxblood); background: var(--paper); }
+  .danger-btn:hover{ background: var(--oxblood); color: #fff; }
+  .btn.danger-btn{ border:1px solid var(--oxblood); }
+  .clone-banner{ display:flex; justify-content:space-between; align-items:center; gap: var(--sp-4); margin-bottom: var(--sp-5); }
   .upload-list{ margin-top: var(--sp-3); display:flex; flex-direction:column; gap:6px; }
   .upload-item{ display:flex; justify-content:space-between; align-items:center; font-size: 12.5px; background: var(--paper-raised); border:1px solid var(--rule-strong); padding: 6px 10px; }
   .upload-item button{ background:none; border:none; color: var(--oxblood); font-size:12px; padding:0; }
@@ -210,11 +221,67 @@
   .onboard-sub{ color: var(--ink-soft); font-size: 14px; margin-bottom: var(--sp-6); max-width: 460px; }
   .footer-note{ margin-top: var(--sp-9); padding-top: var(--sp-4); border-top: 1px solid var(--rule); font-size: 11.5px; color: var(--ink-faint); }
 
+  /* ── Landing page ── */
+  html{ scroll-behavior: smooth; }
+  .landing{ max-width: 1000px; margin: 0 auto; padding: 0 var(--sp-5); }
+  .landing-hero{ position:relative; text-align:center; padding: var(--sp-9) 0 var(--sp-7); border-bottom: 1px solid var(--rule); overflow:hidden; }
+  .landing-rule-motif{
+    position:absolute; top:0; left:50%; transform:translateX(-50%); width:100%; max-width:1000px; height:100%;
+    pointer-events:none; z-index:0;
+    background-image:
+      radial-gradient(ellipse 480px 260px at 50% 0%, var(--oxblood-wash) 0%, transparent 70%),
+      repeating-linear-gradient(180deg, transparent, transparent 27px, var(--rule) 28px, transparent 29px);
+    background-repeat: no-repeat, repeat-y;
+    background-position: center top, 0 0;
+    opacity:0.7;
+    -webkit-mask-image: linear-gradient(180deg, black, transparent 92%);
+    mask-image: linear-gradient(180deg, black, transparent 92%);
+  }
+  .landing-hero > *{ position:relative; z-index:1; }
+  .landing-eyebrow{ font-family: var(--font-mono); font-size:11.5px; letter-spacing:2.5px; color: var(--oxblood); margin-bottom: var(--sp-3); }
+  .landing-tagline{ font-family: var(--font-serif); font-size: 24px; color: var(--ink); max-width: 600px; margin: var(--sp-4) auto var(--sp-3); line-height:1.35; }
+  .landing-sub{ color: var(--ink-soft); font-size: 14.5px; max-width: 540px; margin: 0 auto var(--sp-5); line-height:1.65; }
+  .landing-badges{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-bottom: var(--sp-6); }
+  .landing-badge{ font-family: var(--font-mono); font-size:11px; letter-spacing:0.3px; color: var(--navy); border:1px solid var(--rule-strong); background: var(--paper-raised); padding:5px 12px; }
+  .landing-cta-row{ display:flex; gap: var(--sp-3); justify-content:center; margin-bottom: var(--sp-5); }
+  .landing-btn-lg{ padding: 13px 28px; font-size:14.5px; transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease; }
+  .landing-btn-lg:hover{ transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.15); }
+  .landing-btn-lg:active{ transform: translateY(0); }
+  .landing-scroll-hint{ display:inline-flex; flex-direction:column; align-items:center; gap:4px; font-family: var(--font-mono); font-size: 12px; letter-spacing:0.3px; color: var(--ink-faint); text-decoration:none; transition: color 0.15s ease; }
+  .landing-scroll-hint:hover{ color: var(--oxblood); }
+  .landing-scroll-arrow{ animation: bob 1.6s ease-in-out infinite; }
+  @keyframes bob{ 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(4px); } }
+  .landing-features{ padding: var(--sp-8) 0; }
+  .feature-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-4); }
+  .feature-card{ position:relative; border:1px solid var(--rule-strong); background: var(--paper-raised); padding: var(--sp-5); transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease; }
+  .feature-card:hover{ transform: translateY(-3px); border-color: var(--oxblood); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
+  .feature-num{ font-family: var(--font-mono); font-size:11px; color: var(--ink-faint); letter-spacing:1px; margin-bottom: var(--sp-2); }
+  .feature-card h3{ font-family: var(--font-serif); font-size: 16px; margin-bottom: var(--sp-2); }
+  .feature-card p{ color: var(--ink-soft); font-size: 13.5px; line-height:1.6; margin:0; }
+
+  /* ── First-time product tour ── */
+  .tour-highlight{ position:fixed; border-radius:4px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.6); border:2px solid var(--oxblood); z-index:200; pointer-events:none; transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease; }
+  .tour-tooltip{ position:fixed; z-index:201; background:var(--paper); border:1px solid var(--rule-strong); padding: var(--sp-4); box-shadow:0 6px 24px rgba(0,0,0,0.35); }
+  .tour-step-count{ font-family:var(--font-mono); font-size:10.5px; color:var(--ink-faint); letter-spacing:0.4px; margin-bottom:6px; }
+  .tour-tooltip h4{ font-family:var(--font-serif); font-size:15px; margin-bottom:6px; }
+  .tour-tooltip p{ font-size:13px; color:var(--ink-soft); line-height:1.5; margin-bottom: var(--sp-3); }
+  .tour-actions{ display:flex; justify-content:space-between; align-items:center; }
+
   @media (max-width: 560px){
     .app{ padding: 0 var(--sp-4) var(--sp-8); }
     .topbar{ padding: var(--sp-4) 0 var(--sp-3); gap: var(--sp-2); }
     .wordmark small{ display:none; } /* subtitle drops on mobile to save space */
     .topnav{ gap: var(--sp-4); font-size: 13px; width:100%; justify-content:space-between; flex-wrap: wrap; row-gap: var(--sp-2); }
+
+    .landing{ padding: 0 var(--sp-4); }
+    .landing-hero{ padding: var(--sp-7) 0 var(--sp-6); }
+    .landing-tagline{ font-size: 18px; }
+    .landing-eyebrow{ letter-spacing:1.5px; font-size:10.5px; }
+    .landing-badges{ gap:6px; }
+    .landing-badge{ font-size:10px; padding:4px 9px; }
+    .landing-cta-row{ flex-direction: column; }
+    .landing-cta-row .btn{ width: 100%; }
+    .feature-grid{ grid-template-columns: 1fr; }
 
     .notes-grid{ grid-template-columns: 1fr; }
 
@@ -328,6 +395,14 @@
   .rubric-reveal summary::-webkit-details-marker{ display:none; }
   .rubric-reveal summary::before{ content:'▶'; font-size:9px; transition: transform 0.2s; }
   details[open] .rubric-reveal summary::before{ transform: rotate(90deg); }
+
+  /* ── Step-by-step solutions ── */
+  .step-solution{ margin-top:8px; border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-3) var(--sp-4); }
+  .step-loading{ font-size:12.5px; color:var(--ink-faint); font-style:italic; }
+  .step-list{ margin:0; padding-left:1.2em; font-size:13px; color:var(--ink-soft); line-height:1.65; }
+  .step-list li{ margin-bottom:6px; }
+  .step-list li:last-child{ margin-bottom:0; font-weight:600; color:var(--ink); }
+
   /* ── Stats page ── */
   .stats-select-panel{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-4); margin-bottom: var(--sp-5); }
   .stats-select-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--sp-3); }
@@ -382,6 +457,11 @@
   .explore-meta{ font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); }
   .explore-badge{ font-family:var(--font-mono); font-size:10px; padding:2px 7px; border:1px solid var(--green); color:var(--green); background:var(--green-wash); white-space:nowrap; }
   .explore-badge.viewonly{ border-color:var(--amber); color:var(--amber); background:var(--amber-wash); }
+  .explore-desc{ font-size:12.5px; color:var(--ink-soft); line-height:1.5; margin:4px 0 8px; }
+  .explore-profile-card{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-4); margin-bottom: var(--sp-5); }
+  .explore-profile-name{ font-family:var(--font-serif); font-size:17px; margin-bottom:4px; }
+  .my-upload-row{ display:flex; border-bottom:1px solid var(--rule); padding: var(--sp-4) 0; }
+  .cloned-from-tag{ font-family:var(--font-mono); font-size:11px; color:var(--navy); margin-top:4px; }
   .chip-cat{ font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); border:1px solid var(--rule-strong); padding:2px 7px; }
 
   /* ── Dashboard organization: search / tags / grouping ── */
@@ -456,15 +536,32 @@ const S = {
   exploreLoading: false,
   exploreSearch: '',
   exploreDetailId: null,
+  exploreTab: 'browse', // 'browse' | 'myuploads'
+  myUploads: [],
+  myUploadsLoading: false,
+  editingPublishedId: null,
   publishPanelOpen: false,
   publishCopyable: true,
+  publishDescription: '',
+  publishAnonymous: false,
+  recentCloneInfo: null, // { title, author } shown as a dismissible banner on the dashboard right after cloning
+  stepSolutions: {}, // key `${source}_${idx}` -> { open, loading, steps, error }
+  regenerating: {}, // key `${source}_${idx}` -> boolean, question regeneration in flight
+  deleteAccountOpen: false,
+  _pwChangeError: null,
+  _pwChangeSuccess: false,
+  _deleteError: null,
+  tourActive: false,
+  tourStep: 0,
   comprehensiveSession: null,
   customTestSession: null,
   // dashboard organization: search / tag filter / grouping / inline tag editor
   dashboardSearch: '',
   dashboardActiveTags: [],
   dashboardGroupBy: 'none', // 'none' | 'category'
-  editingTagsSetId: null
+  editingTagsSetId: null,
+  historySortBy: 'date',   // 'date' | 'score'
+  historyDetailIdx: null,
 };
 
 const PRESET_API_KEYS = [
@@ -525,7 +622,7 @@ function exportStudyDataToJSON() {
 
 async function loadAll(){
   if(!S.supabaseClient){
-    S.route = 'onboarding';
+    S.route = 'landing';
     render();
     return;
   }
@@ -534,7 +631,7 @@ async function loadAll(){
     const { data: { session } } = await S.supabaseClient.auth.getSession();
     if(!session){
       S.profile = null;
-      S.route = 'onboarding';
+      S.route = 'landing';
       render();
       return;
     }
@@ -574,7 +671,7 @@ async function loadAll(){
         const [snRes, qRes, hRes] = await Promise.all([
           S.supabaseClient.from('sticky_notes').select('id, title, body, box_level, next_review').eq('study_set_id', s.id),
           S.supabaseClient.from('quizzes').select('type, question, options, answer, topic, explanation').eq('study_set_id', s.id),
-          S.supabaseClient.from('history').select('type, score_text, pct, letter, timestamp').eq('study_set_id', s.id).order('timestamp', { ascending: true })
+S.supabaseClient.from('history').select('type, score_text, pct, letter, timestamp, details').eq('study_set_id', s.id).order('timestamp', { ascending: true })
         ]);
 
         sets.push({
@@ -583,6 +680,8 @@ async function loadAll(){
           notesSummary: s.notes_summary,
           category: s.category || 'General',
           tags: Array.isArray(s.tags) ? s.tags : [],
+          clonedFromTitle: s.cloned_from_title || null,
+          clonedFromAuthor: s.cloned_from_author || null,
           quizSettings: s.quiz_settings || null,
           testSettings: s.test_settings || null,
           customTestSettings: s.customtest_settings || null,
@@ -601,7 +700,8 @@ async function loadAll(){
             scoreText: h.score_text,
             pct: h.pct,
             letter: h.letter,
-            timestamp: h.timestamp
+            timestamp: h.timestamp,
+            details: h.details || null,
           }))
         });
       }
@@ -697,6 +797,64 @@ async function saveProfile(){
 async function saveApiKey(){ await saveProfile(); }
 async function saveModel(){ await saveProfile(); }
 
+async function changePassword(newPw, confirmPw){
+  S._pwChangeError = null;
+  S._pwChangeSuccess = false;
+  if(!newPw || newPw.length < 6){
+    S._pwChangeError = 'Password must be at least 6 characters.';
+    render();
+    return;
+  }
+  if(newPw !== confirmPw){
+    S._pwChangeError = 'Passwords do not match.';
+    render();
+    return;
+  }
+  try{
+    const { error } = await S.supabaseClient.auth.updateUser({ password: newPw });
+    if(error) throw error;
+    S._pwChangeSuccess = true;
+  }catch(e){
+    S._pwChangeError = e.message;
+  }
+  render();
+}
+
+/**
+ * Deletes everything this account owns that the client is able to delete
+ * under RLS (study sets and their sticky notes/quizzes/history, anything
+ * published to Explore, and the profile row), then signs out.
+ *
+ * IMPORTANT LIMITATION: this does NOT delete the underlying Supabase Auth
+ * user record itself - only Supabase's admin API (service-role key, which
+ * must never be used client-side) can do that. After this runs, the
+ * account's login credentials still technically exist, but every trace of
+ * the person's data is gone and they're signed out. This is disclosed to
+ * the user in the confirmation UI.
+ */
+async function deleteAccountCascade(){
+  if(!S.supabaseClient) return;
+  const { data: { session } } = await S.supabaseClient.auth.getSession();
+  if(!session) return;
+  const userId = session.user.id;
+
+  const setIds = S.studySets.map(s => s.id);
+  if(setIds.length){
+    await S.supabaseClient.from('quizzes').delete().in('study_set_id', setIds);
+    await S.supabaseClient.from('sticky_notes').delete().in('study_set_id', setIds);
+    await S.supabaseClient.from('history').delete().in('study_set_id', setIds);
+    await S.supabaseClient.from('study_sets').delete().in('id', setIds);
+  }
+  await S.supabaseClient.from('published_sets').delete().eq('author_id', userId);
+  await S.supabaseClient.from('profiles').delete().eq('id', userId);
+  await S.supabaseClient.auth.signOut();
+
+  S.profile = null;
+  S.studySets = [];
+  S.route = 'landing';
+  render();
+}
+
 async function saveStudySet(set){
   if(!S.supabaseClient) return;
   const { data: { session } } = await S.supabaseClient.auth.getSession();
@@ -711,6 +869,8 @@ async function saveStudySet(set){
     notes_summary: set.notesSummary,
     category: set.category || 'General',
     tags: set.tags || [],
+    cloned_from_title: set.clonedFromTitle || null,
+    cloned_from_author: set.clonedFromAuthor || null,
     created_at: new Date(set.createdAt || Date.now()).toISOString(),
     updated_at: new Date(set.updatedAt).toISOString()
   });
@@ -1088,7 +1248,7 @@ function resolveDifficultyTier(mode, recentScores){
   return 'medium';
 }
 
-async function generateQuizOnly({ title, notesSummary, level, count, types, recentScores, difficultyMode }){
+async function generateQuizOnly({ title, notesSummary, level, count, types, recentScores, difficultyMode, avoidQuestions }){
   const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
   const targetLang = getTargetLang();
   const mode = difficultyMode || 'dynamic';
@@ -1110,6 +1270,7 @@ async function generateQuizOnly({ title, notesSummary, level, count, types, rece
     '',
     'Produce a JSON object: { "quiz": [ { "type": one of ["multiple_choice","true_false","short_answer","fill_blank"], "topic": string, "question": string, "options": [string] (4, only for multiple_choice), "answer": string, "explanation": string } ] }',
     'Generate exactly ' + count + ' NEW questions (do not repeat obvious prior phrasing), using only these types: ' + typeList + '. Distribute evenly.',
+    avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
     'For fill_blank use "_____" in the question text.',
     'Respond with JSON only.',
   ].filter(Boolean).join('\n');
@@ -1205,7 +1366,7 @@ async function persistSetSettings(set, patch){
   }
 }
 
-async function generateTest({ title, notesSummary, level, count, leniency, persona }){
+async function generateTest({ title, notesSummary, level, count, leniency, persona, avoidQuestions, targetPoints }){
   const targetLang = getTargetLang();
   const leniencyNote = {
     strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
@@ -1225,14 +1386,15 @@ async function generateTest({ title, notesSummary, level, count, leniency, perso
     'IMPORTANT: Write all test questions, rubrics, and related text entirely in ' + targetLang + '.',
     'Produce a JSON object: { "questions": [ { "type": "short_answer" or "essay", "question": string, "rubric": string, "points": number } ] }.',
     'Write exactly ' + count + ' questions total. Mostly short_answer (a sentence or two expected); include a small number of essay questions only if the material and question count support it (a paragraph expected).',
+    avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
     'The "rubric" field should briefly describe what a full-credit answer must include, for grading purposes later; do not show this to the student.',
-    'Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
+    targetPoints ? ('This question is worth exactly ' + targetPoints + ' points — set "points" to ' + targetPoints + '.') : 'Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
     'Respond with JSON only.',
   ].filter(Boolean).join('\n');
   return callGemini([{ text: prompt }]);
 }
 
-async function generateCustomTest({ title, notesSummary, level, count, types, leniency, persona }){
+async function generateCustomTest({ title, notesSummary, level, count, types, leniency, persona, avoidQuestions, targetPoints }){
   const targetLang = getTargetLang();
   const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
   const leniencyNote = {
@@ -1256,7 +1418,8 @@ async function generateCustomTest({ title, notesSummary, level, count, types, le
     'For every question type, "answer" is the exact correct answer (for multiple_choice, exactly matching one of the options; for true_false, "True" or "False"; for fill_blank, the missing word/phrase; for short_answer, a model correct answer).',
     'The "rubric" field should briefly describe what a full-credit answer needs to include, for grading purposes later; do not show it to the student. For multiple_choice and true_false, the rubric can simply restate why the correct answer is right.',
     'For fill_blank, use "_____" in the question text for the blank.',
-    'Write exactly ' + count + ' questions total. Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
+    avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
+    targetPoints ? ('This question is worth exactly ' + targetPoints + ' points — set "points" to ' + targetPoints + '.') : 'Write exactly ' + count + ' questions total. Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
     'Respond with JSON only.',
   ].filter(Boolean).join('\n');
   const res = await callGemini([{ text: prompt }]);
@@ -1295,13 +1458,15 @@ const root = document.getElementById('root');
 function render(){
   if(S.route === 'loading'){ root.innerHTML = ''; return; }
   let html = '';
-  if(S.route === 'onboarding') html = renderOnboarding();
+  if(S.route === 'landing') html = renderLanding();
+  else if(S.route === 'onboarding') html = renderOnboarding();
   else {
     html = '<div class="app">' + renderTopbar() + renderAutoSwitchBanner() + renderRoute() + renderFooter() + '</div>';
   }
   if(S.loading){ html += renderLoadingOverlay(); }
   if(S.modelFallbackModal){ html += renderModelFallbackModal(); }
   if(S.tutorDrawer){ html += renderTutorDrawer(); }
+  if(S.tourActive){ html += renderTourOverlay(); }
   root.innerHTML = html;
   bindEvents();
 
@@ -1309,6 +1474,7 @@ function render(){
     initStatsCharts();
   }
   renderMathInRoot();
+  positionTourOverlay();
 }
 
 function renderMathInRoot(){
@@ -1333,6 +1499,106 @@ function renderAutoSwitchBanner(){
     '<span>"' + esc(a.from) + '" is retired, switched to "' + esc(a.to) + '" and saved it in Settings.</span>' +
     '<button type="button" class="linklike" id="dismiss-autoswitch" style="background:none;border:none;color:inherit;text-decoration:underline;font-size:12px;padding:0;">Dismiss</button>' +
   '</div>';
+}
+
+// ── First-time product tour ──
+const TOUR_STEPS = [
+  {
+    selector: '[data-nav="newset"]',
+    title: 'Create your first study set',
+    text: 'Paste your notes or upload photos/PDFs of them here. The AI turns them into a notes summary, sticky-note flashcards, and a starter quiz.'
+  },
+  {
+    selector: '[data-nav="explore"]',
+    title: 'Explore',
+    text: 'Browse study sets other people have published. Copyable ones you can add straight to your own account; view-only ones you can still read through.'
+  },
+  {
+    selector: '[data-nav="stats"]',
+    title: 'Stats',
+    text: 'Every quiz, test, and exam you take gets tracked here — score trends, your strongest and weakest subjects, and a day streak.'
+  },
+  {
+    selector: '[data-nav="settings"]',
+    title: 'Settings — add your API key here',
+    text: 'This is the important one: add your free Gemini API key here to start generating study sets (grab one from Google AI Studio, it takes a minute). Education level, language, dark mode, and Daily Review reminders all live here too.'
+  }
+];
+
+function maybeStartTour(userId){
+  try{
+    if(localStorage.getItem('tourSeen_' + userId) === 'true') return;
+  }catch(e){}
+  S.tourActive = true;
+  S.tourStep = 0;
+}
+
+async function endTourAndPersist(){
+  S.tourActive = false;
+  if(S.supabaseClient){
+    try{
+      const { data: { session } } = await S.supabaseClient.auth.getSession();
+      if(session) localStorage.setItem('tourSeen_' + session.user.id, 'true');
+    }catch(e){}
+  }
+  render();
+}
+
+function positionTourOverlay(){
+  const highlight = document.getElementById('tour-highlight');
+  const tooltip = document.getElementById('tour-tooltip');
+  if(!highlight || !tooltip || !S.tourActive) return;
+  const step = TOUR_STEPS[S.tourStep];
+  if(!step){ endTourAndPersist(); return; }
+  const target = document.querySelector(step.selector);
+  if(!target){
+    // target isn't on screen (e.g. different route) - just skip to next step
+    S.tourStep++;
+    if(S.tourStep >= TOUR_STEPS.length){ endTourAndPersist(); }
+    else render();
+    return;
+  }
+  const rect = target.getBoundingClientRect();
+  const pad = 6;
+  highlight.style.top = (rect.top - pad) + 'px';
+  highlight.style.left = (rect.left - pad) + 'px';
+  highlight.style.width = (rect.width + pad*2) + 'px';
+  highlight.style.height = (rect.height + pad*2) + 'px';
+
+  const tooltipWidth = 300;
+  let tLeft = rect.left;
+  if(tLeft + tooltipWidth > window.innerWidth - 16) tLeft = window.innerWidth - tooltipWidth - 16;
+  if(tLeft < 16) tLeft = 16;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const placeBelow = spaceBelow > 180;
+  tooltip.style.left = tLeft + 'px';
+  tooltip.style.width = tooltipWidth + 'px';
+  if(placeBelow){
+    tooltip.style.top = (rect.bottom + 14) + 'px';
+    tooltip.style.bottom = 'auto';
+  } else {
+    tooltip.style.top = 'auto';
+    tooltip.style.bottom = (window.innerHeight - rect.top + 14) + 'px';
+  }
+}
+
+function renderTourOverlay(){
+  if(!S.tourActive) return '';
+  const step = TOUR_STEPS[S.tourStep];
+  if(!step) return '';
+  const isLast = S.tourStep === TOUR_STEPS.length - 1;
+  return (
+    '<div id="tour-highlight" class="tour-highlight"></div>' +
+    '<div id="tour-tooltip" class="tour-tooltip">' +
+      '<div class="tour-step-count">STEP ' + (S.tourStep+1) + ' OF ' + TOUR_STEPS.length + '</div>' +
+      '<h4>' + esc(step.title) + '</h4>' +
+      '<p>' + esc(step.text) + '</p>' +
+      '<div class="tour-actions">' +
+        '<button type="button" class="linklike" id="tour-skip" style="background:none;border:none;color:var(--ink-faint);text-decoration:underline;font-size:12px;padding:0;">Skip tour</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="tour-next">' + (isLast ? 'Got it!' : 'Next') + '</button>' +
+      '</div>' +
+    '</div>'
+  );
 }
 
 function renderTutorDrawer(){
@@ -1487,6 +1753,94 @@ function renderTopbar(){
   );
 }
 
+const FEATURE_SECTIONS = [
+  {
+    title: 'Turn your notes into a full study set',
+    body: 'Paste lecture notes or an outline, or upload photos/PDFs of handwritten or textbook pages. The AI reads everything, writes a clean consolidated summary, generates a set of revision sticky notes, builds an initial quiz, and even figures out what subject it is (Chemistry, World History, whatever it is) automatically.'
+  },
+  {
+    title: 'Practice Quiz, customized every time',
+    body: 'Pick the question count, which question types to include (multiple choice, true/false, short answer, fill in the blank), and a difficulty tier — Easy, Medium, Hard, or Dynamic, which auto-adjusts based on your recent scores. A fresh quiz is generated each time you take it, with an optional timer and instant grading with explanations.'
+  },
+  {
+    title: 'Formal Test, graded like a real exam',
+    body: 'Short-answer and essay questions, graded by AI on meaning and substance rather than exact wording — with real partial credit. Tune the grading leniency (strict/standard/lenient), tell it to ignore minor spelling slips, and even set an examiner persona to flavor the questions and feedback.'
+  },
+  {
+    title: 'Custom Test: the best of both',
+    body: 'Choose your question types like a Practice Quiz, but get AI partial-credit grading like a Formal Test. Multiple choice and true/false are graded full-or-nothing since they\'re inherently binary; short answer and fill-in-the-blank get the same rubric-based partial credit as a Formal Test.'
+  },
+  {
+    title: 'Comprehensive Exam builder',
+    body: 'Studying for a midterm or final that spans several units? Select 2–5 of your study sets and generate one cumulative exam that samples proportionally across all of them.'
+  },
+  {
+    title: 'Daily Review keeps things fresh',
+    body: 'A Leitner-style spaced repetition queue pulls due flashcards from across all your study sets — 1, 3, 7, then 14-day intervals depending on how well you know each one. Turn on browser reminders in Settings so you don\'t forget.'
+  },
+  {
+    title: 'Ask Tutor when you get something wrong',
+    body: 'Any missed question on a quiz or test has an "Ask Tutor" button that opens a live chat with a Socratic AI tutor — ask why your answer was wrong, get a real-world analogy, or request an easier practice question on that exact concept.'
+  },
+  {
+    title: 'Active Recall Mode',
+    body: 'Toggle your notes summary into cloze-deletion mode — key terms get masked into blanks you click to reveal, turning passive reading into active recall without generating a whole new quiz.'
+  },
+  {
+    title: 'Stats that actually help you study smarter',
+    body: 'Every quiz, test, and exam you take is tracked: score trends over time, your strongest and weakest subjects, a day streak, and an activity heatmap — filterable by whichever study sets you care about.'
+  },
+  {
+    title: 'Explore: a public space to share sets',
+    body: 'Publish a study set for other people to find — mark it Copyable so anyone can add it straight to their own account and make it fully theirs, or View Only so people can read through it without copying it.'
+  },
+  {
+    title: 'And the smaller things',
+    body: 'Tags, search, and subject grouping once you\'ve got more than a few sets. Export any set to a clean, printable PDF. Full LaTeX rendering for math/chemistry/physics formulas. Dark mode. It all stays out of your way until you need it.'
+  }
+];
+
+function renderLanding(){
+  return (
+    '<div class="landing">' +
+      '<div class="landing-hero">' +
+        '<div class="landing-rule-motif" aria-hidden="true"></div>' +
+        '<div class="landing-eyebrow stagger-in" style="animation-delay:0ms">AI STUDY COMPANION</div>' +
+        '<div class="wordmark stagger-in" style="font-size:40px; animation-delay:60ms;">Marginalia</div>' +
+        '<p class="landing-tagline stagger-in" style="animation-delay:120ms">Turn the notes you already have into notes worth studying from.</p>' +
+        '<p class="landing-sub stagger-in" style="animation-delay:180ms">Paste your notes or snap a photo of them, and Marginalia writes a clean summary, builds flashcards, and generates quizzes and graded tests you can actually study from — then tracks your progress over time.</p>' +
+        '<div class="landing-badges stagger-in" style="animation-delay:240ms">' +
+          '<span class="landing-badge">Instant Quizzes</span>' +
+          '<span class="landing-badge">AI-Graded Tests</span>' +
+          '<span class="landing-badge">Spaced Repetition</span>' +
+          '<span class="landing-badge">Progress Tracking</span>' +
+        '</div>' +
+        '<div class="landing-cta-row stagger-in" style="animation-delay:300ms">' +
+          '<button class="btn btn-primary landing-btn-lg" id="landing-signup">Sign Up Free</button>' +
+          '<button class="btn btn-quiet landing-btn-lg" id="landing-login">Log In</button>' +
+        '</div>' +
+        '<a href="#landing-features" class="landing-scroll-hint stagger-in" style="animation-delay:360ms">See what it does<span class="landing-scroll-arrow">&darr;</span></a>' +
+      '</div>' +
+      '<div class="landing-features" id="landing-features">' +
+        '<h2 style="text-align:center; margin-bottom:var(--sp-6);">Everything Marginalia does</h2>' +
+        '<div class="feature-grid">' +
+          FEATURE_SECTIONS.map((f, i) => (
+            '<div class="feature-card stagger-in" style="animation-delay:' + (i*50) + 'ms">' +
+              '<div class="feature-num">' + String(i+1).padStart(2,'0') + '</div>' +
+              '<h3>' + esc(f.title) + '</h3>' +
+              '<p>' + esc(f.body) + '</p>' +
+            '</div>'
+          )).join('') +
+        '</div>' +
+        '<div style="text-align:center; margin-top:var(--sp-7);">' +
+          '<button class="btn btn-primary landing-btn-lg" id="landing-signup-bottom">Sign Up Free</button>' +
+        '</div>' +
+      '</div>' +
+      renderFooter() +
+    '</div>'
+  );
+}
+
 function renderOnboarding(){
   if(S.authMode === 'forgot') return renderForgotPassword();
   const isLogin = S.authMode === 'login';
@@ -1518,20 +1872,6 @@ function renderOnboarding(){
         (isLogin ? '<div style="margin-top:6px;"><button type="button" class="linklike" id="auth-forgot-link" style="background:none; border:none; color:var(--navy); text-decoration:underline; font-size:12.5px; padding:0;">Forgot password?</button></div>' : '') +
       '</div>' +
 
-      '<div class="field">' +
-        '<label class="field-label">Google AI Studio API Key</label>' +
-        (!isLogin ? (
-          '<div style="margin-bottom:8px;">' +
-            '<div style="font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Quick-select API Key:</div>' +
-            '<div style="display:flex; gap:6px; flex-wrap:wrap;">' +
-              PRESET_API_KEYS.map((k, idx) => '<button type="button" class="btn btn-quiet btn-sm preset-key-btn" data-key="' + esc(k) + '">Key ' + (idx+1) + '</button>').join('') +
-            '</div>' +
-          '</div>'
-        ) : '') +
-        '<input type="password" id="auth-apikey" value="' + esc(S.apiKey) + '" placeholder="AIza..." />' +
-        '<div class="field-hint">Choose a quick key above or enter your own Gemini API key.</div>' +
-      '</div>' +
-
       (!isLogin ? (
         '<div class="field">' +
           '<label class="field-label">You are studying at</label>' +
@@ -1541,6 +1881,8 @@ function renderOnboarding(){
           '</div>' +
         '</div>'
       ) : '') +
+
+      (!isLogin ? '<div class="field-hint" style="margin-bottom:var(--sp-4);">After signing up, add your free Gemini API key in Settings to start generating study sets.</div>' : '') +
 
       (S._authError ? '<div class="callout error" style="margin-bottom:15px;">' + esc(S._authError) + '</div>' : '') +
 
@@ -1663,8 +2005,36 @@ function renderSettings(){
     '</div>' +
     '<hr class="divider" />' +
     '<div class="field">' +
+      '<label class="field-label">Change Password</label>' +
+      '<input type="password" id="change-pw-new" placeholder="New password" style="margin-bottom:8px;" />' +
+      '<input type="password" id="change-pw-confirm" placeholder="Confirm new password" />' +
+      (S._pwChangeError ? '<div class="callout error" style="margin-top:8px;">' + esc(S._pwChangeError) + '</div>' : '') +
+      (S._pwChangeSuccess ? '<div class="callout success" style="margin-top:8px;">Password updated.</div>' : '') +
+      '<button type="button" class="btn btn-quiet btn-sm" id="btn-change-password" style="margin-top:8px;">Update Password</button>' +
+      '<div class="field-hint">At least 6 characters. You\'re already logged in, so no need to enter your current password.</div>' +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field">' +
       '<label class="field-label">Account</label>' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="btn-replay-tour" style="margin-right:8px;">Replay Tutorial</button>' +
       '<button type="button" class="btn btn-quiet btn-sm" id="btn-logout">Log out</button>' +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field danger-zone">' +
+      '<label class="field-label" style="color:var(--oxblood);">Danger Zone</label>' +
+      (!S.deleteAccountOpen ? (
+        '<button type="button" class="btn btn-quiet btn-sm danger-btn" id="btn-open-delete">Delete Account</button>' +
+        '<div class="field-hint">Permanently deletes all your study sets, sticky notes, quizzes, history, and anything you\'ve published to Explore.</div>'
+      ) : (
+        '<div class="callout error">' +
+          '<p style="margin:0 0 10px; font-weight:600;">This cannot be undone.</p>' +
+          '<p style="margin:0 0 10px;">This deletes all your study sets, sticky notes, quizzes, test history, and any study sets you\'ve published to Explore. Type <strong>DELETE</strong> below to confirm.</p>' +
+          '<input type="text" id="delete-confirm-input" placeholder="Type DELETE" style="margin-bottom:10px;" />' +
+          (S._deleteError ? '<div style="margin-bottom:10px; color:var(--oxblood-dark);">' + esc(S._deleteError) + '</div>' : '') +
+          '<button type="button" class="btn danger-btn" id="btn-confirm-delete">Permanently Delete My Account</button> ' +
+          '<button type="button" class="btn btn-quiet btn-sm" id="btn-cancel-delete">Cancel</button>' +
+        '</div>'
+      )) +
     '</div>' +
     '<div style="display:flex; gap:var(--sp-3); margin-top:var(--sp-6)">' +
       '<button class="btn btn-primary" id="settings-save">Save settings</button>' +
@@ -1716,6 +2086,7 @@ function renderSetRow(s){
           '<span><span class="num">' + (s.quiz?.length||0) + '</span> quiz Qs</span>' +
           (s.history?.length ? '<span><span class="num">' + s.history.length + '</span> tests/quizzes taken</span>' : '') +
         '</div>' +
+        (s.clonedFromTitle ? '<div class="cloned-from-tag">Copied from &ldquo;' + esc(s.clonedFromTitle) + '&rdquo; by ' + esc(s.clonedFromAuthor||'someone') + '</div>' : '') +
         ((s.tags && s.tags.length) ? '<div class="ledger-tags">' + s.tags.map(t => '<span class="tag-pill">' + esc(t) + '</span>').join('') + '</div>' : '') +
         (isEditingTags ? (
           '<div class="tag-edit-row" data-stop-nav="1">' +
@@ -1768,6 +2139,12 @@ function renderDashboard(){
   }
 
   return (
+    (S.recentCloneInfo ? (
+      '<div class="callout success clone-banner">' +
+        '<span>Added &ldquo;' + esc(S.recentCloneInfo.title) + '&rdquo; to your study sets &mdash; copied from ' + esc(S.recentCloneInfo.author) + '.</span>' +
+        '<button type="button" class="linklike" id="dismiss-clone-banner" style="background:none;border:none;color:inherit;text-decoration:underline;font-size:12px;padding:0;">Dismiss</button>' +
+      '</div>'
+    ) : '') +
     (allHistory.length ? renderStreakBar(allHistory) : '') +
     (allSets.length ? (
       '<div class="dash-actions">' +
@@ -2165,6 +2542,128 @@ async function generateComprehensiveTest({ sets, level, count, leniency, persona
   return callGemini([{ text: prompt }]);
 }
 
+// ═══════════════════════ STEP-BY-STEP SOLUTIONS ═══════════════════════
+
+async function generateStepSolution({ question, answerOrRubric, level }){
+  const targetLang = getTargetLang();
+  const prompt = [
+    'Write a clear, step-by-step solution walkthrough for this question, for a ' + (level==='college'?'college':'high school') + ' student.',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    'Respond entirely in ' + targetLang + '.',
+    '',
+    'Question: ' + question,
+    answerOrRubric ? 'Correct answer / rubric (for your reference, to make sure the steps actually arrive at it): ' + answerOrRubric : '',
+    '',
+    'Produce a JSON object: { "steps": [string, string, ...] }.',
+    'Break the reasoning into 3-7 short, sequential steps a student could follow to solve it themselves — show the actual work/reasoning at each step (calculations, formula application, logical deductions), not just vague hints. The final step should state the answer clearly.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  const res = await callGemini([{ text: prompt }]);
+  return res.steps || [];
+}
+
+function stepSolutionKey(source, idx){ return source + '_' + idx; }
+
+function renderStepSolutionBlock(source, idx, question, answerOrRubric){
+  const key = stepSolutionKey(source, idx);
+  const state = S.stepSolutions[key];
+  const isOpen = state && state.open;
+  return (
+    '<button class="btn btn-quiet btn-sm" style="margin-top:8px; margin-right:8px;" data-toggle-steps="' + source + '" data-tutor-idx="' + idx + '">' +
+      (isOpen ? 'Hide step-by-step solution' : 'Show step-by-step solution') +
+    '</button>' +
+    (isOpen ? (
+      '<div class="step-solution">' +
+        (state.loading ? '<div class="step-loading">Working through it...</div>' :
+          state.error ? '<div class="callout error" style="margin-top:8px;">' + esc(state.error) + '</div>' :
+          '<ol class="step-list">' + (state.steps||[]).map(s => '<li>' + esc(s) + '</li>').join('') + '</ol>'
+        ) +
+      '</div>'
+    ) : '')
+  );
+}
+
+async function toggleStepSolution(source, idx, question, answerOrRubric){
+  const key = stepSolutionKey(source, idx);
+  if(!S.stepSolutions[key]) S.stepSolutions[key] = { open: false, loading: false, steps: null, error: null };
+  const state = S.stepSolutions[key];
+  state.open = !state.open;
+  if(state.open && !state.steps && !state.loading){
+    state.loading = true;
+    render();
+    try{
+      state.steps = await generateStepSolution({ question, answerOrRubric, level: S.profile?.level });
+    }catch(e){
+      state.error = 'Could not generate a solution: ' + e.message;
+    }finally{
+      state.loading = false;
+      render();
+    }
+  } else {
+    render();
+  }
+}
+
+// ═══════════════════════ REGENERATE A SINGLE QUESTION ═══════════════════════
+
+function regenKey(source, idx){ return source + '_' + idx; }
+
+async function regenerateQuestion(source, idx){
+  const set = S.studySets.find(s => s.id === S.currentSetId);
+  if(!set) return;
+  const sess = source === 'quiz' ? S.quizSession : source === 'customtest' ? S.customTestSession : S.testSession;
+  if(!sess) return;
+  const q = sess.questions[idx];
+  if(!q) return;
+
+  const key = regenKey(source, idx);
+  if(!S.regenerating) S.regenerating = {};
+  if(S.regenerating[key]) return; // already in flight
+  S.regenerating[key] = true;
+  render();
+
+  try{
+    let newQ;
+    if(source === 'quiz'){
+      const results = await generateQuizOnly({
+        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        count: 1, types: [q.type], avoidQuestions: [q.question]
+      });
+      newQ = results[0];
+    } else if(source === 'test'){
+      const result = await generateTest({
+        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        count: 1, leniency: sess.leniency, persona: sess.persona,
+        avoidQuestions: [q.question], targetPoints: q.points
+      });
+      newQ = result.questions[0];
+    } else { // customtest
+      const results = await generateCustomTest({
+        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        count: 1, types: [q.type], leniency: sess.leniency, persona: sess.persona,
+        avoidQuestions: [q.question], targetPoints: q.points
+      });
+      newQ = results[0];
+    }
+    if(!newQ) throw new Error('The model didn\'t return a replacement question. Try again.');
+    sess.questions[idx] = newQ;
+    delete sess.answers[idx];
+    delete S.stepSolutions[key];
+  }catch(e){
+    alert('Could not regenerate this question: ' + e.message);
+  }finally{
+    S.regenerating[key] = false;
+    render();
+  }
+}
+
+function renderRegenerateBtn(source, idx){
+  const key = regenKey(source, idx);
+  const busy = S.regenerating && S.regenerating[key];
+  return '<button type="button" class="regen-btn" data-regen-question="' + source + '" data-tutor-idx="' + idx + '" ' + (busy?'disabled':'') + '>' + (busy ? 'Regenerating...' : '&#8635; Regenerate') + '</button>';
+}
+
 // ═══════════════════════ PUBLIC EXPLORE SPACE ═══════════════════════
 
 async function loadExploreSets(){
@@ -2174,7 +2673,7 @@ async function loadExploreSets(){
   try{
     let query = S.supabaseClient
       .from('published_sets')
-      .select('id, author_id, author_name, title, category, notes_summary, sticky_notes, quiz, is_copyable, clone_count, created_at')
+      .select('id, author_id, author_name, title, category, description, notes_summary, sticky_notes, quiz, is_copyable, is_anonymous, clone_count, created_at')
       .order('created_at', { ascending: false })
       .limit(100);
     const { data, error } = await query;
@@ -2189,7 +2688,30 @@ async function loadExploreSets(){
   }
 }
 
-async function publishSetToExplore(set, isCopyable){
+async function loadMyUploads(){
+  if(!S.supabaseClient) return;
+  S.myUploadsLoading = true;
+  render();
+  try{
+    const { data: { session } } = await S.supabaseClient.auth.getSession();
+    if(!session){ S.myUploads = []; return; }
+    const { data, error } = await S.supabaseClient
+      .from('published_sets')
+      .select('id, title, category, description, is_copyable, is_anonymous, clone_count, created_at')
+      .eq('author_id', session.user.id)
+      .order('created_at', { ascending: false });
+    if(error) throw error;
+    S.myUploads = data || [];
+  }catch(e){
+    console.error('Failed to load your uploads', e);
+    S.myUploads = [];
+  }finally{
+    S.myUploadsLoading = false;
+    render();
+  }
+}
+
+async function publishSetToExplore(set, isCopyable, description, isAnonymous){
   if(!S.supabaseClient) return;
   const { data: { session } } = await S.supabaseClient.auth.getSession();
   if(!session) return;
@@ -2199,20 +2721,50 @@ async function publishSetToExplore(set, isCopyable){
     original_set_id: set.id,
     title: set.title,
     category: set.category || 'General',
+    description: (description || '').slice(0, 300),
     notes_summary: set.notesSummary || '',
     sticky_notes: (set.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body })),
     quiz: (set.quiz || []).map(q => ({ type: q.type, topic: q.topic, question: q.question, options: q.options || [], answer: q.answer, explanation: q.explanation || '' })),
-    is_copyable: isCopyable
+    is_copyable: isCopyable,
+    is_anonymous: !!isAnonymous
   };
   const { error } = await S.supabaseClient.from('published_sets').insert(row);
   if(error){ alert('Could not publish: ' + error.message); return; }
   alert('Published to Explore' + (isCopyable ? '' : ' as view-only') + '. Anyone can find it under the Explore tab now.');
   S.publishPanelOpen = false;
+  S.publishDescription = '';
+  S.publishAnonymous = false;
   render();
+}
+
+async function unpublishSet(pubId){
+  if(!confirm('Take this down from Explore? People who already copied it keep their own copy either way.')) return;
+  if(!S.supabaseClient) return;
+  try{
+    await S.supabaseClient.from('published_sets').delete().eq('id', pubId);
+    S.myUploads = S.myUploads.filter(p => p.id !== pubId);
+    render();
+  }catch(e){
+    alert('Could not unpublish: ' + e.message);
+  }
+}
+
+async function updatePublishedSettings(pubId, patch){
+  if(!S.supabaseClient) return;
+  try{
+    await S.supabaseClient.from('published_sets').update(patch).eq('id', pubId);
+    const item = S.myUploads.find(p => p.id === pubId);
+    if(item) Object.assign(item, patch);
+    S.editingPublishedId = null;
+    render();
+  }catch(e){
+    alert('Could not update: ' + e.message);
+  }
 }
 
 async function cloneExploreSet(pub){
   if(!confirm('Add "' + pub.title + '" to your study sets? You\'ll get your own independent copy you can edit, quiz on, and everything else.')) return;
+  const authorLabel = pub.is_anonymous ? 'Anonymous' : pub.author_name;
   const newSet = {
     id: uid(),
     title: pub.title,
@@ -2222,7 +2774,9 @@ async function cloneExploreSet(pub){
     category: pub.category || 'General',
     stickyNotes: (pub.sticky_notes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
     quiz: pub.quiz || [],
-    history: []
+    history: [],
+    clonedFromTitle: pub.title,
+    clonedFromAuthor: authorLabel
   };
   S.loading = true;
   S.loadingMsg = 'Reading materials & generating study set...';
@@ -2236,6 +2790,7 @@ async function cloneExploreSet(pub){
         await S.supabaseClient.from('published_sets').update({ clone_count: (pub.clone_count||0) + 1 }).eq('id', pub.id);
       }catch(e){ /* non-critical */ }
     }
+    S.recentCloneInfo = { title: pub.title, author: authorLabel };
     S.currentSetId = newSet.id;
     S.currentTab = 'notes';
     S.route = 'set';
@@ -2248,6 +2803,7 @@ async function cloneExploreSet(pub){
 }
 
 function renderExplore(){
+  if(S.exploreTab === 'myuploads') return renderMyUploads();
   if(S.exploreDetailId){
     const pub = S.exploreSets.find(p => p.id === S.exploreDetailId);
     if(pub) return renderExploreDetail(pub);
@@ -2262,6 +2818,10 @@ function renderExplore(){
 
   return (
     '<div class="section-heading"><h2>Explore</h2><span class="muted" style="font-size:13px">' + S.exploreSets.length + ' published set' + (S.exploreSets.length===1?'':'s') + '</span></div>' +
+    '<div class="choice-row" style="margin-bottom:var(--sp-4);">' +
+      '<button class="choice-pill selected" data-explore-tab="browse">Browse</button>' +
+      '<button class="choice-pill" data-explore-tab="myuploads">My Uploads</button>' +
+    '</div>' +
     '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Browse study sets other people have published. Copyable ones you can add straight to your own study sets and use however you like; view-only ones you can still read through here.</p>' +
     '<input type="text" class="dash-search-input" id="explore-search" placeholder="Search by title, subject, or author..." value="' + esc(S.exploreSearch||'') + '" />' +
     (S.exploreLoading ? '<div class="stats-empty">Loading Explore...</div>' :
@@ -2274,10 +2834,61 @@ function renderExplore(){
                 (p.is_copyable ? '<span class="explore-badge copyable">Copyable</span>' : '<span class="explore-badge viewonly">View only</span>') +
               '</div>' +
               '<h4>' + esc(p.title) + '</h4>' +
-              '<div class="explore-meta">by ' + esc(p.author_name) + ' &bull; ' + (p.sticky_notes?.length||0) + ' notes &bull; ' + (p.quiz?.length||0) + ' quiz Qs' + (p.clone_count ? ' &bull; ' + p.clone_count + ' added' : '') + '</div>' +
+              (p.description ? '<p class="explore-desc">' + esc(p.description) + '</p>' : '') +
+              '<div class="explore-meta">by ' + esc(p.is_anonymous ? 'Anonymous' : p.author_name) + ' &bull; ' + (p.sticky_notes?.length||0) + ' notes &bull; ' + (p.quiz?.length||0) + ' quiz Qs' + (p.clone_count ? ' &bull; ' + p.clone_count + ' added' : '') + '</div>' +
             '</div>'
           )).join('') +
         '</div>'
+      )
+    )
+  );
+}
+
+function renderMyUploads(){
+  const totalClones = S.myUploads.reduce((acc,p)=>acc+(p.clone_count||0), 0);
+  return (
+    '<div class="section-heading"><h2>Explore</h2></div>' +
+    '<div class="choice-row" style="margin-bottom:var(--sp-4);">' +
+      '<button class="choice-pill" data-explore-tab="browse">Browse</button>' +
+      '<button class="choice-pill selected" data-explore-tab="myuploads">My Uploads</button>' +
+    '</div>' +
+    '<div class="explore-profile-card">' +
+      '<div class="explore-profile-name">' + esc(S.profile?.name || 'You') + '</div>' +
+      '<div class="explore-meta">' + S.myUploads.length + ' published set' + (S.myUploads.length===1?'':'s') + ' &bull; ' + totalClones + ' total time' + (totalClones===1?'':'s') + ' added by others</div>' +
+    '</div>' +
+    (S.myUploadsLoading ? '<div class="stats-empty">Loading your uploads...</div>' :
+      (S.myUploads.length === 0 ? '<div class="stats-empty">You haven\'t published anything yet. Open a study set and use "Publish to Explore" on its Notes tab.</div>' :
+        S.myUploads.map(p => {
+          const isEditing = S.editingPublishedId === p.id;
+          return (
+            '<div class="my-upload-row">' +
+              '<div style="flex:1; min-width:0;">' +
+                '<div class="ledger-title">' + esc(p.title) + ' ' + (p.is_copyable ? '<span class="explore-badge copyable">Copyable</span>' : '<span class="explore-badge viewonly">View only</span>') + (p.is_anonymous ? ' <span class="explore-badge">Anonymous</span>' : '') + '</div>' +
+                '<div class="explore-meta">' + esc(p.category||'General') + ' &bull; published ' + new Date(p.created_at).toLocaleDateString() + ' &bull; ' + (p.clone_count||0) + ' added</div>' +
+                (p.description ? '<p class="explore-desc">' + esc(p.description) + '</p>' : '') +
+                (isEditing ? (
+                  '<div class="setup-panel" style="margin-top:var(--sp-3);">' +
+                    '<div class="choice-row">' +
+                      '<button class="choice-pill ' + (p.is_copyable?'selected':'') + '" data-edit-copyable="' + p.id + '" data-val="true">Copyable</button>' +
+                      '<button class="choice-pill ' + (!p.is_copyable?'selected':'') + '" data-edit-copyable="' + p.id + '" data-val="false">View only</button>' +
+                    '</div>' +
+                    '<label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-top:var(--sp-3); cursor:pointer;"><input type="checkbox" id="edit-anon-' + p.id + '" ' + (p.is_anonymous?'checked':'') + ' /> Publish anonymously</label>' +
+                    '<textarea id="edit-desc-' + p.id + '" placeholder="Short description (optional)" style="margin-top:var(--sp-3); min-height:60px;">' + esc(p.description||'') + '</textarea>' +
+                    '<div style="margin-top:var(--sp-3); display:flex; gap:8px;">' +
+                      '<button class="btn btn-primary btn-sm" data-save-edit="' + p.id + '">Save changes</button>' +
+                      '<button class="btn btn-quiet btn-sm" data-cancel-edit="' + p.id + '">Cancel</button>' +
+                    '</div>' +
+                  '</div>'
+                ) : (
+                  '<div style="margin-top:8px; display:flex; gap:8px;">' +
+                    '<button class="btn btn-quiet btn-sm" data-edit-upload="' + p.id + '">Edit settings</button>' +
+                    '<button class="btn btn-quiet btn-sm" data-unpublish="' + p.id + '">Unpublish</button>' +
+                  '</div>'
+                )) +
+              '</div>' +
+            '</div>'
+          );
+        }).join('')
       )
     )
   );
@@ -2290,7 +2901,8 @@ function renderExploreDetail(pub){
       '<h2>' + esc(pub.title) + '</h2>' +
       (pub.is_copyable ? '<span class="explore-badge copyable">Copyable</span>' : '<span class="explore-badge viewonly">View only</span>') +
     '</div>' +
-    '<div class="explore-meta" style="margin-bottom:var(--sp-4);">' + esc(pub.category||'General') + ' &bull; by ' + esc(pub.author_name) + ' &bull; published ' + new Date(pub.created_at).toLocaleDateString() + '</div>' +
+    '<div class="explore-meta" style="margin-bottom:var(--sp-3);">' + esc(pub.category||'General') + ' &bull; by ' + esc(pub.is_anonymous ? 'Anonymous' : pub.author_name) + ' &bull; published ' + new Date(pub.created_at).toLocaleDateString() + '</div>' +
+    (pub.description ? '<p class="explore-desc" style="margin-bottom:var(--sp-4);">' + esc(pub.description) + '</p>' : '') +
     (pub.is_copyable
       ? '<button class="btn btn-primary" data-clone-explore="' + pub.id + '" style="margin-bottom:var(--sp-5);">Add to My Study Sets</button>'
       : '<div class="callout" style="margin-bottom:var(--sp-5); font-size:13px;">The author made this view-only &mdash; you can read through it here, but it can\'t be added to your own study sets.</div>'
@@ -2312,7 +2924,6 @@ function renderExploreDetail(pub){
     ) : '')
   );
 }
-
 
 function renderNewSet(){
   const d = S.newSet || { title:'', notesText:'', files:[], level: S.profile?.level||'college' };
@@ -2353,6 +2964,7 @@ function renderNewSet(){
     '</div>'
   );
 }
+
 function renderSet(){
   const set = S.studySets.find(s=>s.id===S.currentSetId);
   if(!set) return '<div>Study set not found.</div>';
@@ -2363,22 +2975,27 @@ function renderSet(){
       '<div class="section-heading" style="margin-bottom:var(--sp-4)">' +
         '<h2>' + esc(set.title) + '</h2>' +
       '</div>' +
-      '<div class="tabs">' +
-        '<button class="tab ' + (tab==='notes'?'active':'') + '" data-set-tab="notes">Notes & Sticky Notes</button>' +
-        '<button class="tab ' + (tab==='quiz'?'active':'') + '" data-set-tab="quiz">Practice Quiz</button>' +
-        '<button class="tab ' + (tab==='test'?'active':'') + '" data-set-tab="test">Formal Test</button>' +
-        '<button class="tab ' + (tab==='customtest'?'active':'') + '" data-set-tab="customtest">Custom Test</button>' +
+'<div class="tabs">' +
+  '<button class="tab ' + (tab==='notes'?'active':'') + '" data-set-tab="notes">Notes & Sticky Notes</button>' +
+  '<button class="tab ' + (tab==='quiz'?'active':'') + '" data-set-tab="quiz">Practice Quiz</button>' +
+  '<button class="tab ' + (tab==='test'?'active':'') + '" data-set-tab="test">Formal Test</button>' +
+  '<button class="tab ' + (tab==='customtest'?'active':'') + '" data-set-tab="customtest">Custom Test</button>' +
+  '<button class="tab ' + (tab==='history'?'active':'') + '" data-set-tab="history">History</button>' +   // <-- must be here, inside .tabs
+'</div>' +
+      '<div class="tab-content" style="margin-top:var(--sp-5);">' +
+        renderSetTabContent(set, tab) +
       '</div>' +
-      renderSetTabContent(set, tab) +
     '</div>'
   );
 }
+
 function renderSetTabContent(set, tab){
   switch(tab){
     case 'notes': return renderTabNotes(set);
     case 'quiz': return renderTabQuiz(set);
     case 'test': return renderTabTest(set);
     case 'customtest': return renderTabCustomTest(set);
+    case 'history': return renderTabHistory(set);
     default: return '';
   }
 }
@@ -2403,7 +3020,15 @@ function renderTabNotes(set){
               '<button class="choice-pill ' + (S.publishCopyable===false?'selected':'') + '" id="publish-copyable-off">View only &mdash; others can read it but not copy it</button>' +
             '</div>' +
           '</div>' +
-          '<div class="field-hint" style="margin-bottom:var(--sp-3);">This publishes a snapshot of your current notes summary, sticky notes, and quiz questions. Later edits to this set won\'t update the published copy.</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Description <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+            '<textarea id="publish-description" placeholder="What is this study set about? Any context that would help someone decide if it\'s useful to them." style="min-height:70px;">' + esc(S.publishDescription||'') + '</textarea>' +
+            '<div class="field-hint">Shown on the card in Explore, separate from the notes summary itself.</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="publish-anonymous" ' + (S.publishAnonymous?'checked':'') + ' /> Publish anonymously (hide my name, show "Anonymous" instead)</label>' +
+          '</div>' +
+          '<div class="field-hint" style="margin-bottom:var(--sp-3);">This publishes a snapshot of your current notes summary, sticky notes, and quiz questions. Later edits to this set won\'t update the published copy — republish any time from here, or manage/unpublish it from Explore &rarr; My Uploads.</div>' +
           '<button class="btn btn-primary btn-sm" id="confirm-publish">Publish</button>' +
           '<button class="btn btn-quiet btn-sm" id="cancel-publish">Cancel</button>' +
         '</div>'
@@ -2802,7 +3427,7 @@ function renderQuizQuestionInput(q, i, userAns){
   if(q.type === 'multiple_choice'){
     return (
       '<div class="qcard">' +
-        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; MULTIPLE CHOICE</div>' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; MULTIPLE CHOICE</span>' + renderRegenerateBtn('quiz', i) + '</div>' +
         '<div class="qtext">' + esc(q.question) + '</div>' +
         '<div class="checkbox-row">' +
           (q.options||[]).map(opt => (
@@ -2815,7 +3440,7 @@ function renderQuizQuestionInput(q, i, userAns){
   if(q.type === 'true_false'){
     return (
       '<div class="qcard">' +
-        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; TRUE OR FALSE</div>' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; TRUE OR FALSE</span>' + renderRegenerateBtn('quiz', i) + '</div>' +
         '<div class="qtext">' + esc(q.question) + '</div>' +
         '<div class="checkbox-row">' +
           '<label class="opt"><input type="radio" name="q_' + i + '" value="True" ' + (userAns==='True'?'checked':'') + ' /> True</label>' +
@@ -2826,7 +3451,7 @@ function renderQuizQuestionInput(q, i, userAns){
   }
   return (
     '<div class="qcard">' +
-      '<div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + '</div>' +
+      '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + '</span>' + renderRegenerateBtn('quiz', i) + '</div>' +
       '<div class="qtext">' + esc(q.question) + '</div>' +
       '<input type="text" class="quiz-text-in" data-qidx="' + i + '" value="' + esc(userAns) + '" placeholder="Your answer..." />' +
     '</div>'
@@ -2846,6 +3471,7 @@ function renderQuizQuestionsReview(sess){
         '<div style="font-size:13.5px; margin-bottom:4px;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
         (!res.correct ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + '</strong></div>' : '') +
         (explanation ? '<div class="feedback-line">' + esc(explanation) + '</div>' : '') +
+        renderStepSolutionBlock('quiz', i, q.question, q.answer) +
         (!res.correct ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="quiz" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
       '</div>'
     );
@@ -2923,7 +3549,7 @@ function renderTabTest(set){
       '</div>' +
       sess.questions.map((q, i) => (
         '<div class="qcard">' +
-          '<div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + q.points + ' PTS &bull; ' + q.type.toUpperCase().replace('_',' ') + '</div>' +
+          '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; ' + q.points + ' PTS &bull; ' + q.type.toUpperCase().replace('_',' ') + '</span>' + renderRegenerateBtn('test', i) + '</div>' +
           '<div class="qtext">' + esc(q.question) + '</div>' +
           '<textarea class="test-text-in" data-tidx="' + i + '" placeholder="Write your response...">' + esc(sess.answers[i]||'') + '</textarea>' +
         '</div>'
@@ -3019,13 +3645,66 @@ function renderTabCustomTest(set){
   );
 }
 
+function renderTabHistory(set){
+  if(S.historyDetailIdx != null) return renderHistoryDetail(set, S.historyDetailIdx);
+  const history = (set.history || []).slice();
+  const sortBy = S.historySortBy || 'date';
+  history.sort((a,b) => sortBy === 'score' ? b.pct - a.pct : b.timestamp - a.timestamp);
+  return (
+    '<div>' +
+      '<div class="choice-row" style="margin-bottom:var(--sp-4);">' +
+        '<button class="choice-pill ' + (sortBy==='date'?'selected':'') + '" data-history-sort="date">Newest first</button>' +
+        '<button class="choice-pill ' + (sortBy==='score'?'selected':'') + '" data-history-sort="score">Highest score first</button>' +
+      '</div>' +
+      (history.length === 0 ? '<div class="stats-empty">No quizzes or tests taken yet for this study set.</div>' :
+        '<div class="ledger">' +
+          history.map((h) => {
+            const realIdx = (set.history||[]).indexOf(h);
+            return (
+              '<div class="ledger-row clickable" data-open-history="' + realIdx + '">' +
+                '<div>' +
+                  '<div class="ledger-title"><span class="hist-type">' + h.type.toUpperCase() + '</span> ' + new Date(h.timestamp).toLocaleString() + '</div>' +
+                  '<div class="ledger-meta">Grade: <strong>' + esc(h.letter) + '</strong>' + (h.details ? '' : ' <span class="muted">(no detail saved)</span>') + '</div>' +
+                '</div>' +
+                '<div class="hist-score"><span class="num">' + esc(h.scoreText) + '</span> (' + h.pct + '%)</div>' +
+              '</div>'
+            );
+          }).join('') +
+        '</div>'
+      ) +
+    '</div>'
+  );
+}
+
+function renderHistoryDetail(set, idx){
+  const h = set.history[idx];
+  if(!h) return '<div>Not found.</div>';
+  const backBtn = '<button class="btn btn-quiet btn-sm" id="history-back" style="margin-bottom:var(--sp-4);">&larr; Back to History</button>';
+  if(!h.details){
+    return backBtn + '<div class="stats-empty">No saved detail for this attempt (taken before this feature was added).</div>';
+  }
+  const fakeSess = { questions: h.details.questions, answers: h.details.answers, gradedResults: h.details.gradedResults };
+  const reviewHtml = h.type === 'quiz' ? renderQuizQuestionsReview(fakeSess)
+    : h.type === 'customtest' ? renderCustomTestReview(fakeSess)
+    : renderTestQuestionsReview(fakeSess);
+  return (
+    backBtn +
+    '<div class="score-block">' +
+      '<div class="score-num">' + esc(h.scoreText) + '</div>' +
+      '<div class="score-label">' + h.type.toUpperCase() + ' &bull; ' + new Date(h.timestamp).toLocaleString() + '</div>' +
+      '<div class="score-letter">Grade: ' + esc(h.letter) + '</div>' +
+    '</div>' +
+    reviewHtml
+  );
+}
+
 function renderCustomTestQuestionInput(q, i, userAns){
   userAns = userAns || '';
   const ptsLabel = '<span style="color:var(--ink-faint); font-weight:400;">&bull; ' + q.points + ' pts</span>';
   if(q.type === 'multiple_choice'){
     return (
       '<div class="qcard">' +
-        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; MULTIPLE CHOICE ' + ptsLabel + '</div>' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; MULTIPLE CHOICE ' + ptsLabel + '</span>' + renderRegenerateBtn('customtest', i) + '</div>' +
         '<div class="qtext">' + esc(q.question) + '</div>' +
         '<div class="checkbox-row">' +
           (q.options||[]).map(opt => (
@@ -3038,7 +3717,7 @@ function renderCustomTestQuestionInput(q, i, userAns){
   if(q.type === 'true_false'){
     return (
       '<div class="qcard">' +
-        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; TRUE OR FALSE ' + ptsLabel + '</div>' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; TRUE OR FALSE ' + ptsLabel + '</span>' + renderRegenerateBtn('customtest', i) + '</div>' +
         '<div class="qtext">' + esc(q.question) + '</div>' +
         '<div class="checkbox-row">' +
           '<label class="opt"><input type="radio" name="ct_' + i + '" value="True" ' + (userAns==='True'?'checked':'') + ' /> True</label>' +
@@ -3049,7 +3728,7 @@ function renderCustomTestQuestionInput(q, i, userAns){
   }
   return (
     '<div class="qcard">' +
-      '<div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + ' ' + ptsLabel + '</div>' +
+      '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + ' ' + ptsLabel + '</span>' + renderRegenerateBtn('customtest', i) + '</div>' +
       '<div class="qtext">' + esc(q.question) + '</div>' +
       '<input type="text" class="ctest-text-in" data-qidx="' + i + '" value="' + esc(userAns) + '" placeholder="Your answer..." />' +
     '</div>'
@@ -3073,6 +3752,7 @@ function renderCustomTestReview(sess){
         (isObjective && earned < max ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + '</strong></div>' : '') +
         (res.feedback ? '<div class="feedback-line">' + esc(res.feedback) + '</div>' : '') +
         (q.rubric ? ('<details class="rubric-reveal"><summary>Show grading rubric</summary><div class="rubric-body">' + esc(q.rubric) + '</div></details>') : '') +
+        renderStepSolutionBlock('customtest', i, q.question, q.rubric || q.answer) +
         (earned < max ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="customtest" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
       '</div>'
     );
@@ -3096,6 +3776,7 @@ function renderTestQuestionsReview(sess){
         (q.rubric ? (
           '<details class="rubric-reveal"><summary>Show grading rubric</summary><div class="rubric-body">' + esc(q.rubric) + '</div></details>'
         ) : '') +
+        renderStepSolutionBlock('test', i, q.question, q.rubric) +
         (earned < max ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="test" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
       '</div>'
     );
@@ -3140,6 +3821,18 @@ function updateCustomTestProgressText(){
 function bindEvents(){
   const dismissBtn = document.getElementById('dismiss-autoswitch');
   if(dismissBtn){ dismissBtn.onclick = ()=>{ S.autoSwitchedModel = null; render(); }; }
+
+  const dismissCloneBanner = document.getElementById('dismiss-clone-banner');
+  if(dismissCloneBanner){ dismissCloneBanner.onclick = ()=>{ S.recentCloneInfo = null; render(); }; }
+  
+  document.querySelectorAll('[data-history-sort]').forEach(el => {
+  el.onclick = (e) => { S.historySortBy = e.currentTarget.getAttribute('data-history-sort'); render(); };
+});
+document.querySelectorAll('[data-open-history]').forEach(el => {
+  el.onclick = (e) => { S.historyDetailIdx = parseInt(e.currentTarget.getAttribute('data-open-history')); render(); };
+});
+const historyBack = document.getElementById('history-back');
+if(historyBack){ historyBack.onclick = () => { S.historyDetailIdx = null; render(); }; }
 
   const fallbackCancel = document.getElementById('fallback-cancel');
   if(fallbackCancel){
@@ -3220,7 +3913,7 @@ function bindEvents(){
         await S.supabaseClient.auth.signOut();
       }
       S.profile = null;
-      S.route = 'onboarding';
+      S.route = 'landing';
       render();
     };
   }
@@ -3231,15 +3924,6 @@ function bindEvents(){
       exportStudyDataToJSON();
     };
   }
-
-  document.querySelectorAll('.preset-key-btn').forEach(el => {
-    el.onclick = (e) => {
-      const k = e.currentTarget.getAttribute('data-key');
-      const input = document.getElementById('auth-apikey');
-      if(input) input.value = k;
-      S.apiKey = k;
-    };
-  });
 
   document.querySelectorAll('.preset-key-btn-settings').forEach(el => {
     el.onclick = (e) => {
@@ -3300,6 +3984,82 @@ function bindEvents(){
       render();
     };
   });
+
+  const replayTourBtn = document.getElementById('btn-replay-tour');
+  if(replayTourBtn){
+    replayTourBtn.onclick = () => {
+      S.route = 'dashboard';
+      S.tourActive = true;
+      S.tourStep = 0;
+      render();
+    };
+  }
+
+  const changePasswordBtn = document.getElementById('btn-change-password');
+  if(changePasswordBtn){
+    changePasswordBtn.onclick = () => {
+      const newPw = document.getElementById('change-pw-new').value;
+      const confirmPw = document.getElementById('change-pw-confirm').value;
+      changePassword(newPw, confirmPw);
+    };
+  }
+
+  const openDeleteBtn = document.getElementById('btn-open-delete');
+  if(openDeleteBtn){
+    openDeleteBtn.onclick = () => {
+      S.deleteAccountOpen = true;
+      S._deleteError = null;
+      render();
+    };
+  }
+  const cancelDeleteBtn = document.getElementById('btn-cancel-delete');
+  if(cancelDeleteBtn){
+    cancelDeleteBtn.onclick = () => {
+      S.deleteAccountOpen = false;
+      S._deleteError = null;
+      render();
+    };
+  }
+  const confirmDeleteBtn = document.getElementById('btn-confirm-delete');
+  if(confirmDeleteBtn){
+    confirmDeleteBtn.onclick = async () => {
+      const typed = document.getElementById('delete-confirm-input').value.trim();
+      if(typed !== 'DELETE'){
+        S._deleteError = 'Type DELETE exactly to confirm.';
+        render();
+        return;
+      }
+      confirmDeleteBtn.disabled = true;
+      confirmDeleteBtn.textContent = 'Deleting...';
+      await deleteAccountCascade();
+    };
+  }
+
+  const tourSkip = document.getElementById('tour-skip');
+  if(tourSkip){
+    tourSkip.onclick = () => endTourAndPersist();
+  }
+  const tourNext = document.getElementById('tour-next');
+  if(tourNext){
+    tourNext.onclick = () => {
+      S.tourStep++;
+      if(S.tourStep >= TOUR_STEPS.length){ endTourAndPersist(); }
+      else render();
+    };
+  }
+
+  const landingSignup = document.getElementById('landing-signup');
+  if(landingSignup){
+    landingSignup.onclick = () => { S.route = 'onboarding'; S.authMode = 'signup'; S._authError = null; render(); };
+  }
+  const landingSignupBottom = document.getElementById('landing-signup-bottom');
+  if(landingSignupBottom){
+    landingSignupBottom.onclick = () => { S.route = 'onboarding'; S.authMode = 'signup'; S._authError = null; render(); };
+  }
+  const landingLogin = document.getElementById('landing-login');
+  if(landingLogin){
+    landingLogin.onclick = () => { S.route = 'onboarding'; S.authMode = 'login'; S._authError = null; render(); };
+  }
 
   const authToggleMode = document.getElementById('auth-toggle-mode');
   if(authToggleMode){
@@ -3373,7 +4133,6 @@ function bindEvents(){
     authSubmit.onclick = async () => {
       const nameInput = document.getElementById('auth-name').value.trim();
       const passInput = document.getElementById('auth-password').value;
-      const apiKeyInput = document.getElementById('auth-apikey').value.trim();
 
       if (!nameInput || !passInput) {
         S._authError = 'Please fill in both name and password.';
@@ -3421,7 +4180,7 @@ function bindEvents(){
             level: S._onboardDraft?.level || 'college',
             grade_scale: defaultGradeScale(),
             language: 'english',
-            api_key: apiKeyInput,
+            api_key: '',
             model: 'gemini-3.6-flash'
           };
 
@@ -3434,9 +4193,10 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
             gradeScale: newProfile.grade_scale,
             language: newProfile.language
           };
-          S.apiKey = apiKeyInput;
+          S.apiKey = '';
           S.studySets = [];
           S.route = 'dashboard';
+          maybeStartTour(userId);
         } else {
           const { data: authData, error: authErr } = await S.supabaseClient.auth.signInWithPassword({ email, password: passInput });
           if(authErr) throw authErr;
@@ -3451,12 +4211,8 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
             gradeScale: profileData.grade_scale || defaultGradeScale(),
             language: profileData.language || 'english'
           };
-          S.apiKey = apiKeyInput || profileData.api_key || '';
+          S.apiKey = profileData.api_key || '';
           S.model = profileData.model || 'gemini-3.6-flash';
-          
-          if(apiKeyInput){
-            await saveApiKey();
-          }
 
           await loadAll();
         }
@@ -3566,6 +4322,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       S.flashcardFlipped = false;
       S.flashcardDone = [];
       S.route = 'set';
+      S.historyDetailIdx = null;
       render();
     };
   });
@@ -3620,6 +4377,49 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     };
   });
 
+  document.querySelectorAll('[data-explore-tab]').forEach(el => {
+    el.onclick = (e) => {
+      S.exploreTab = e.currentTarget.getAttribute('data-explore-tab');
+      S.exploreDetailId = null;
+      if(S.exploreTab === 'myuploads') loadMyUploads();
+      else render();
+    };
+  });
+  document.querySelectorAll('[data-unpublish]').forEach(el => {
+    el.onclick = (e) => unpublishSet(e.currentTarget.getAttribute('data-unpublish'));
+  });
+  document.querySelectorAll('[data-edit-upload]').forEach(el => {
+    el.onclick = (e) => {
+      S.editingPublishedId = e.currentTarget.getAttribute('data-edit-upload');
+      render();
+    };
+  });
+  document.querySelectorAll('[data-cancel-edit]').forEach(el => {
+    el.onclick = () => { S.editingPublishedId = null; render(); };
+  });
+  document.querySelectorAll('[data-edit-copyable]').forEach(el => {
+    el.onclick = (e) => {
+      const pubId = e.currentTarget.getAttribute('data-edit-copyable');
+      const val = e.currentTarget.getAttribute('data-val') === 'true';
+      const item = S.myUploads.find(p => p.id === pubId);
+      if(item){ item.is_copyable = val; render(); }
+    };
+  });
+  document.querySelectorAll('[data-save-edit]').forEach(el => {
+    el.onclick = (e) => {
+      const pubId = e.currentTarget.getAttribute('data-save-edit');
+      const item = S.myUploads.find(p => p.id === pubId);
+      if(!item) return;
+      const descInput = document.getElementById('edit-desc-' + pubId);
+      const anonInput = document.getElementById('edit-anon-' + pubId);
+      updatePublishedSettings(pubId, {
+        is_copyable: item.is_copyable,
+        description: descInput ? descInput.value.trim().slice(0,300) : '',
+        is_anonymous: anonInput ? anonInput.checked : false
+      });
+    };
+  });
+
   const togglePublishPanel = document.getElementById('toggle-publish-panel');
   if(togglePublishPanel){
     togglePublishPanel.onclick = () => {
@@ -3644,9 +4444,13 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     confirmPublish.onclick = async () => {
       const set = S.studySets.find(s => s.id === S.currentSetId);
       if(!set) return;
+      const descInput = document.getElementById('publish-description');
+      const anonInput = document.getElementById('publish-anonymous');
+      S.publishDescription = descInput ? descInput.value.trim() : '';
+      S.publishAnonymous = anonInput ? anonInput.checked : false;
       confirmPublish.disabled = true;
       confirmPublish.textContent = 'Publishing...';
-      await publishSetToExplore(set, S.publishCopyable !== false);
+      await publishSetToExplore(set, S.publishCopyable !== false, S.publishDescription, S.publishAnonymous);
     };
   }
 
@@ -3805,6 +4609,24 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       const source = e.currentTarget.getAttribute('data-ask-tutor');
       const idx = parseInt(e.currentTarget.getAttribute('data-tutor-idx'));
       openTutorDrawer(source, idx);
+    };
+  });
+  document.querySelectorAll('[data-toggle-steps]').forEach(el => {
+    el.onclick = (e) => {
+      const source = e.currentTarget.getAttribute('data-toggle-steps');
+      const idx = parseInt(e.currentTarget.getAttribute('data-tutor-idx'));
+      const sess = source === 'quiz' ? S.quizSession : source === 'customtest' ? S.customTestSession : S.testSession;
+      if(!sess) return;
+      const q = sess.questions[idx];
+      const answerOrRubric = source === 'quiz' ? q.answer : (q.rubric || q.answer);
+      toggleStepSolution(source, idx, q.question, answerOrRubric);
+    };
+  });
+  document.querySelectorAll('[data-regen-question]').forEach(el => {
+    el.onclick = (e) => {
+      const source = e.currentTarget.getAttribute('data-regen-question');
+      const idx = parseInt(e.currentTarget.getAttribute('data-tutor-idx'));
+      regenerateQuestion(source, idx);
     };
   });
   const tutorClose = document.getElementById('tutor-close');
@@ -4115,7 +4937,10 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           timestamp: Date.now(),
           scoreText: score + '/' + sess.total,
           pct,
-          letter
+          letter,
+          details: { questions: sess.questions, answers: sess.answers, gradedResults: sess.gradedResults, score, total: sess.total },
+          details: { questions: sess.questions, answers: sess.answers, gradedResults: sess.gradedResults, pointsEarned, totalPoints: sess.totalPoints },
+          details: newHist.details,
         };
         set.history.push(newHist);
 
@@ -4123,13 +4948,15 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           const { data: { session } } = await S.supabaseClient.auth.getSession();
           if(session){
             await S.supabaseClient.from('history').insert({
+              details: newHist.details,
               study_set_id: set.id,
               user_id: session.user.id,
               type: newHist.type,
               score_text: newHist.scoreText,
               pct: newHist.pct,
               letter: newHist.letter,
-              timestamp: newHist.timestamp
+              timestamp: newHist.timestamp,
+              details: newHist.details,
             });
           }
         }
@@ -4248,6 +5075,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         const pct = Math.round((pointsEarned / sess.totalPoints) * 100);
         const letter = letterFor(pct);
         const historyEntry = {
+          details: { questions: sess.questions, answers: sess.answers, gradedResults: sess.gradedResults, pointsEarned, totalPoints: sess.totalPoints, sourceTitles: sess.sourceTitles },
           type: 'comprehensive',
           timestamp: Date.now(),
           pct,
@@ -4270,7 +5098,8 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
                   pct: historyEntry.pct,
                   letter: historyEntry.letter,
                   score_text: historyEntry.scoreText,
-                  timestamp: historyEntry.timestamp
+                  timestamp: historyEntry.timestamp,
+                  details: historyEntry.details,
                 });
               }
             }catch(err){ console.error('Failed to save comprehensive exam history', err); }
