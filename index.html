@@ -499,6 +499,11 @@
   .rubric-reveal summary::before{ content:'▶'; font-size:9px; transition: transform 0.2s; }
   details[open] .rubric-reveal summary::before{ transform: rotate(90deg); }
 
+  .type-count-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: var(--sp-3); }
+.type-count-row{ display:flex; justify-content:space-between; align-items:center; gap:8px; border:1px solid var(--rule-strong); padding:8px 10px; background:var(--paper-raised); }
+.type-count-row label{ font-size:12.5px; color:var(--ink-soft); }
+.type-count-row input{ width:60px; text-align:center; }
+
   /* ── Step-by-step solutions ── */
   .step-solution{ margin-top:8px; border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-3) var(--sp-4); }
   .step-loading{ font-size:12.5px; color:var(--ink-faint); font-style:italic; }
@@ -587,6 +592,10 @@
   .setup-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
   .type-check-row{ display:flex; flex-direction:column; gap: var(--sp-2); }
   .type-check-row label{ display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer; }
+  .type-count-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: var(--sp-3); }
+  .type-count-row{ display:flex; justify-content:space-between; align-items:center; gap:8px; border:1px solid var(--rule-strong); padding:8px 10px; background:var(--paper-raised); }
+  .type-count-row label{ font-size:12.5px; color:var(--ink-soft); }
+  .type-count-row input{ width:60px; text-align:center; }
   .timer-pin{ display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:14px; border:1px solid var(--rule-strong); padding: 4px 10px; }
   .timer-pin.timer-warn{ border-color:var(--oxblood); color:var(--oxblood); }
   .quiz-progress-label .timer-pin{ margin-left:auto; }
@@ -1066,6 +1075,13 @@ function computeWeakTopics(sess){
     topicMap[topic].total++;
     if(sess.gradedResults[qi] && sess.gradedResults[qi].correct) topicMap[topic].correct++;
   });
+  const DEFAULT_TYPE_COUNTS = { multiple_choice: 4, true_false: 2, short_answer: 3, fill_blank: 1 };
+
+const COMPUTATIONAL_INSTRUCTION = 'This study set is in a computational subject. Where the material supports it, write actual computational/numeric practice problems requiring real calculation (solve for a value, compute a numeric result, apply a formula, work through a multi-step calculation) rather than purely conceptual or definition-based questions — mirror how an instructor in this subject would actually test problem-solving, not just recall.';
+
+function isComputationalSubject(category){
+  return /math|algebra|calculus|geometry|trigonometry|statistics|physics|chemistry|engineering|arithmetic/i.test(category || '');
+}
   return Object.entries(topicMap)
     .map(([topic, v]) => ({ topic, correct: v.correct, total: v.total, pct: v.total ? Math.round(v.correct/v.total*100) : 0 }))
     .sort((a,b) => a.pct - b.pct);
@@ -1281,6 +1297,14 @@ const TYPE_LABELS = {
   fill_blank: 'Fill in the blank',
 };
 
+const DEFAULT_TYPE_COUNTS = { multiple_choice: 4, true_false: 2, short_answer: 3, fill_blank: 1 };
+
+const COMPUTATIONAL_INSTRUCTION = 'This study set is in a computational subject. Where the material supports it, write actual computational/numeric practice problems requiring real calculation (solve for a value, compute a numeric result, apply a formula, work through a multi-step calculation) rather than purely conceptual or definition-based questions — mirror how an instructor in this subject would actually test problem-solving, not just recall.';
+
+function isComputationalSubject(category){
+  return /math|algebra|calculus|geometry|trigonometry|statistics|physics|chemistry|engineering|arithmetic/i.test(category || '');
+}
+
 const LATEX_INSTRUCTION = 'For any mathematical, chemical, or physics formulas/equations, write them using LaTeX syntax: wrap inline expressions in single dollar signs like $x^2 + 1$ and standalone/display equations in double dollar signs like $$E = mc^2$$. Use proper LaTeX commands (\\frac, \\sqrt, \\rightarrow, subscripts/superscripts, etc). Do not use LaTeX for plain prose.';
 
 function levelInstruction(level){
@@ -1400,8 +1424,9 @@ function resolveDifficultyTier(mode, recentScores){
   return 'medium';
 }
 
-async function generateQuizOnly({ title, notesSummary, level, count, types, recentScores, difficultyMode, avoidQuestions }){
-  const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
+async function generateQuizOnly({ title, notesSummary, level, typeCounts, recentScores, difficultyMode, avoidQuestions, computational }){
+  const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0);
+  const typeBreakdown = Object.entries(typeCounts).map(([t,n]) => n + ' ' + TYPE_LABELS[t]).join(', ');
   const targetLang = getTargetLang();
   const mode = difficultyMode || 'dynamic';
   const tier = resolveDifficultyTier(mode, recentScores);
@@ -1414,6 +1439,7 @@ async function generateQuizOnly({ title, notesSummary, level, count, types, rece
     'Write a fresh practice quiz for a ' + (level==='college'?'college':'high school') + ' student on "' + title + '", based only on this notes summary:',
     levelInstruction(level),
     LATEX_INSTRUCTION,
+    computational ? COMPUTATIONAL_INSTRUCTION : '',
     '',
     notesSummary,
     '',
@@ -1421,7 +1447,8 @@ async function generateQuizOnly({ title, notesSummary, level, count, types, rece
     'IMPORTANT: All text MUST be entirely in ' + targetLang + '.',
     '',
     'Produce a JSON object: { "quiz": [ { "type": one of ["multiple_choice","true_false","short_answer","fill_blank"], "topic": string, "question": string, "options": [string] (4, only for multiple_choice), "answer": string, "explanation": string } ] }',
-    'Generate exactly ' + count + ' NEW questions (do not repeat obvious prior phrasing), using only these types: ' + typeList + '. Distribute evenly.',
+    'Generate exactly ' + count + ' NEW questions (do not repeat obvious prior phrasing), broken down EXACTLY as: ' + typeBreakdown + '. Do not deviate from these per-type counts.',
+    computational ? COMPUTATIONAL_INSTRUCTION : '',
     avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
     'For fill_blank use "_____" in the question text.',
     'Respond with JSON only.',
@@ -1518,7 +1545,7 @@ async function persistSetSettings(set, patch){
   }
 }
 
-async function generateTest({ title, notesSummary, level, count, leniency, persona, avoidQuestions, targetPoints }){
+async function generateTest({ title, notesSummary, level, count, leniency, persona, avoidQuestions, targetPoints, computational }){
   const targetLang = getTargetLang();
   const leniencyNote = {
     strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
@@ -1532,6 +1559,7 @@ async function generateTest({ title, notesSummary, level, count, leniency, perso
     LATEX_INSTRUCTION,
     leniencyNote,
     personaNote,
+    computational ? COMPUTATIONAL_INSTRUCTION : '',
     '',
     notesSummary,
     '',
@@ -1546,9 +1574,11 @@ async function generateTest({ title, notesSummary, level, count, leniency, perso
   return callGemini([{ text: prompt }]);
 }
 
-async function generateCustomTest({ title, notesSummary, level, count, types, leniency, persona, avoidQuestions, targetPoints }){
+async function generateCustomTest({ title, notesSummary, level, typeCounts, leniency, persona, avoidQuestions, targetPoints, computational }){
+  const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0);
+  const typeBreakdown = Object.entries(typeCounts).map(([t,n]) => n + ' ' + TYPE_LABELS[t]).join(', ');
   const targetLang = getTargetLang();
-  const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
+  const typeList = Object.keys(typeCounts).map(t=>TYPE_LABELS[t]).join(', ');
   const leniencyNote = {
     strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
     standard: 'Grading will be STANDARD — write rubrics that reward solid understanding without demanding perfect wording.',
@@ -1561,17 +1591,18 @@ async function generateCustomTest({ title, notesSummary, level, count, types, le
     LATEX_INSTRUCTION,
     leniencyNote,
     personaNote,
+    computational ? COMPUTATIONAL_INSTRUCTION : '',
     '',
     notesSummary,
     '',
     'IMPORTANT: Write all test questions, rubrics, options, and related text entirely in ' + targetLang + '.',
-    'Produce a JSON object: { "questions": [ { "type": one of [' + types.map(t=>'"'+t+'"').join(', ') + '], "question": string, "options": [string] (exactly 4, ONLY for multiple_choice), "answer": string, "rubric": string, "points": number } ] }.',
-    'Use only these question types: ' + typeList + '. Distribute them roughly evenly across the set.',
+    'Produce a JSON object: { "questions": [ { "type": one of [' + Object.keys(typeCounts).map(t=>'"'+t+'"').join(', ') + '], "question": string, "options": [string] (exactly 4, ONLY for multiple_choice), "answer": string, "rubric": string, "points": number } ] }.',
+    'Write exactly ' + count + ' questions total, broken down EXACTLY as: ' + typeBreakdown + '. Use only these question types: ' + typeList + '.',
     'For every question type, "answer" is the exact correct answer (for multiple_choice, exactly matching one of the options; for true_false, "True" or "False"; for fill_blank, the missing word/phrase; for short_answer, a model correct answer).',
     'The "rubric" field should briefly describe what a full-credit answer needs to include, for grading purposes later; do not show it to the student. For multiple_choice and true_false, the rubric can simply restate why the correct answer is right.',
     'For fill_blank, use "_____" in the question text for the blank.',
     avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
-    targetPoints ? ('This question is worth exactly ' + targetPoints + ' points — set "points" to ' + targetPoints + '.') : 'Write exactly ' + count + ' questions total. Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
+    targetPoints ? ('This question is worth exactly ' + targetPoints + ' points — set "points" to ' + targetPoints + '.') : 'Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
     'Respond with JSON only.',
   ].filter(Boolean).join('\n');
   const res = await callGemini([{ text: prompt }]);
@@ -3617,20 +3648,16 @@ function renderTabQuiz(set){
   const sess = S.quizSession;
   if(!sess){
     const diff = difficultyDisplay(set);
-    const qs = set.quizSettings || { count: 10, types: Object.keys(TYPE_LABELS), timerMode: 'none', difficultyMode: 'dynamic' };
-    const rec = recommendTimerMinutes(qs.count || 10);
+    const qs = set.quizSettings || { typeCounts: { ...DEFAULT_TYPE_COUNTS }, timerMode: 'none', difficultyMode: 'dynamic', computational: isComputationalSubject(set.category) };
+    const typeCounts = qs.typeCounts || DEFAULT_TYPE_COUNTS;
+    const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0) || 10;
+    const rec = recommendTimerMinutes(count);
     return (
       '<div>' +
         '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Test your knowledge with instant scoring. Questions are freshly generated from your study materials each time.</p>' +
         (diff ? '<div class="callout" style="margin-bottom:var(--sp-4); font-size:13px;"><span class="diff-badge ' + diff.cls + '">' + diff.label + '</span>&nbsp; ' + esc(diff.note) + '</div>' : '') +
         '<div class="setup-panel">' +
           '<div class="setup-grid">' +
-            '<div class="field">' +
-              '<label class="field-label">Number of questions</label>' +
-              '<select id="quiz-count">' +
-                QUIZ_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((qs.count||10)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
-              '</select>' +
-            '</div>' +
             '<div class="field">' +
               '<label class="field-label">Difficulty</label>' +
               '<select id="quiz-difficulty">' +
@@ -3643,12 +3670,19 @@ function renderTabQuiz(set){
             renderTimerSetting('quiz', rec, qs.timerMode, qs.timerCustom) +
           '</div>' +
           '<div class="field">' +
-            '<label class="field-label">Question types</label>' +
-            '<div class="type-check-row">' +
+            '<label class="field-label">Questions per type</label>' +
+            '<div class="type-count-grid">' +
               Object.keys(TYPE_LABELS).map(t => (
-                '<label><input type="checkbox" class="quiz-type-check" value="' + t + '" ' + ((qs.types||Object.keys(TYPE_LABELS)).includes(t)?'checked':'') + ' /> ' + TYPE_LABELS[t] + '</label>'
+                '<div class="type-count-row">' +
+                  '<label>' + TYPE_LABELS[t] + '</label>' +
+                  '<input type="number" class="quiz-type-count" data-type="' + t + '" min="0" max="30" value="' + ((qs.typeCounts && qs.typeCounts[t]) ?? DEFAULT_TYPE_COUNTS[t]) + '" />' +
+                '</div>'
               )).join('') +
             '</div>' +
+            '<div class="field-hint">Set a type to 0 to leave it out. This replaces the old total-count dropdown.</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="quiz-computational" ' + ((qs.computational ?? isComputationalSubject(set.category)) ? 'checked' : '') + ' /> Include computational/numeric practice problems (math, physics, chemistry, etc.)</label>' +
           '</div>' +
           '<button class="btn btn-primary" id="start-quiz" style="margin-top:var(--sp-2);">Start practice quiz</button>' +
         '</div>' +
@@ -3751,7 +3785,7 @@ const TEST_COUNT_OPTIONS = [5,10,15,20,25,30,40];
 function renderTabTest(set){
   const sess = S.testSession;
   if(!sess){
-    const ts = set.testSettings || { count: 10, leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none' };
+    const ts = set.testSettings || { count: 10, leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none', computational: isComputationalSubject(set.category) };
     const rec = recommendTimerMinutes(ts.count || 10);
     return (
       '<div>' +
@@ -3775,6 +3809,9 @@ function renderTabTest(set){
               '</select>' +
             '</div>' +
             renderTimerSetting('test', rec, ts.timerMode, ts.timerCustom) +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="test-computational" ' + ((ts.computational ?? isComputationalSubject(set.category)) ? 'checked' : '') + ' /> Include computational/numeric practice problems (math, physics, chemistry, etc.)</label>' +
           '</div>' +
           '<div class="field">' +
             '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="test-spelling" ' + (ts.spellingLenient!==false?'checked':'') + ' /> Ignore minor spelling &amp; grammar mistakes when grading</label>' +
@@ -3832,21 +3869,15 @@ function renderTabTest(set){
 function renderTabCustomTest(set){
   const sess = S.customTestSession;
   if(!sess){
-    const ts = set.customTestSettings || { count: 10, types: Object.keys(TYPE_LABELS), leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none' };
-    const rec = recommendTimerMinutes(ts.count || 10);
+    const ts = set.customTestSettings || { typeCounts: { ...DEFAULT_TYPE_COUNTS }, leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none', computational: isComputationalSubject(set.category) };
+    const typeCounts = ts.typeCounts || DEFAULT_TYPE_COUNTS;
+    const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0) || 10;
+    const rec = recommendTimerMinutes(count);
     return (
       '<div>' +
         '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">A point-graded, AI-graded test like Formal Test (partial credit, rubric-based) &mdash; but you choose the question types, like Practice Quiz.</p>' +
         '<div class="setup-panel">' +
           '<div class="setup-grid">' +
-            '<div class="field">' +
-              '<label class="field-label">Number of questions</label>' +
-              '<select id="ctest-count">' +
-                TEST_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((ts.count||10)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
-                '<option value="custom" ' + (!TEST_COUNT_OPTIONS.includes(ts.count)?'selected':'') + '>Custom&hellip;</option>' +
-              '</select>' +
-              '<input type="number" id="ctest-count-custom" min="1" max="100" value="' + (!TEST_COUNT_OPTIONS.includes(ts.count) ? ts.count : '') + '" placeholder="e.g. 50" style="margin-top:8px; display:' + (!TEST_COUNT_OPTIONS.includes(ts.count)?'block':'none') + ';" />' +
-            '</div>' +
             '<div class="field">' +
               '<label class="field-label">Grading leniency</label>' +
               '<select id="ctest-leniency">' +
@@ -3858,13 +3889,20 @@ function renderTabCustomTest(set){
             renderTimerSetting('ctest', rec, ts.timerMode, ts.timerCustom) +
           '</div>' +
           '<div class="field">' +
-            '<label class="field-label">Question types</label>' +
-            '<div class="type-check-row">' +
+            '<label class="field-label">Questions per type</label>' +
+            '<div class="type-count-grid">' +
               Object.keys(TYPE_LABELS).map(t => (
-                '<label><input type="checkbox" class="ctest-type-check" value="' + t + '" ' + ((ts.types||Object.keys(TYPE_LABELS)).includes(t)?'checked':'') + ' /> ' + TYPE_LABELS[t] + '</label>'
+                '<div class="type-count-row">' +
+                  '<label>' + TYPE_LABELS[t] + '</label>' +
+                  '<input type="number" class="ctest-type-count" data-type="' + t + '" min="0" max="30" value="' + ((ts.typeCounts && ts.typeCounts[t]) ?? DEFAULT_TYPE_COUNTS[t]) + '" />' +
+                '</div>'
               )).join('') +
             '</div>' +
-            '<div class="field-hint">Multiple choice &amp; true/false are graded full-or-nothing (they\'re inherently binary). Short answer &amp; fill in the blank get AI partial credit, same as Formal Test.</div>' +
+            '<div class="field-hint">Set a type to 0 to leave it out. This replaces the old total-count dropdown.</div>' +
+            '<div class="field-hint" style="margin-top:8px;">Multiple choice &amp; true/false are graded full-or-nothing (they\'re inherently binary). Short answer &amp; fill in the blank get AI partial credit, same as Formal Test.</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="ctest-computational" ' + ((ts.computational ?? isComputationalSubject(set.category)) ? 'checked' : '') + ' /> Include computational/numeric practice problems (math, physics, chemistry, etc.)</label>' +
           '</div>' +
           '<div class="field">' +
             '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="ctest-spelling" ' + (ts.spellingLenient!==false?'checked':'') + ' /> Ignore minor spelling &amp; grammar mistakes when grading</label>' +
@@ -5020,9 +5058,14 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
   if(startQuizBtn){
     startQuizBtn.onclick = async () => {
       const set = S.studySets.find(s=>s.id===S.currentSetId);
-      const count = parseInt(document.getElementById('quiz-count').value);
-      const types = Array.from(document.querySelectorAll('.quiz-type-check:checked')).map(el=>el.value);
-      if(types.length === 0){ alert('Choose at least one question type.'); return; }
+      const typeCounts = {};
+      document.querySelectorAll('.quiz-type-count').forEach(el => {
+        const n = parseInt(el.value) || 0;
+        if(n > 0) typeCounts[el.getAttribute('data-type')] = n;
+      });
+      if(Object.keys(typeCounts).length === 0){ alert('Set at least one question type above 0.'); return; }
+      const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0);
+      const computational = document.getElementById('quiz-computational').checked;
       const difficultyMode = document.getElementById('quiz-difficulty').value;
       const rec = recommendTimerMinutes(count);
       const timerMode = document.getElementById('quiz-timer-mode').value;
@@ -5030,7 +5073,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
       const timerMinutes = resolveTimerMinutes('quiz', rec);
 
-      const quizSettings = { count, types, timerMode, timerCustom, difficultyMode };
+      const quizSettings = { typeCounts, timerMode, timerCustom, difficultyMode, computational };
       await persistSetSettings(set, { quizSettings });
 
       S.loading = true;
@@ -5042,7 +5085,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           title: set.title,
           notesSummary: set.notesSummary,
           level: S.profile.level,
-          count, types, recentScores, difficultyMode
+          typeCounts, recentScores, difficultyMode, computational
         });
         S.quizSession = {
           questions,
@@ -5336,13 +5379,14 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       const leniency = document.getElementById('test-leniency').value;
       const spellingLenient = document.getElementById('test-spelling').checked;
       const persona = document.getElementById('test-persona').value.trim();
+      const computational = document.getElementById('test-computational').checked;
       const rec = recommendTimerMinutes(count);
       const timerMode = document.getElementById('test-timer-mode').value;
       const timerCustomEl = document.getElementById('test-timer-custom');
       const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
       const timerMinutes = resolveTimerMinutes('test', rec);
 
-      const testSettings = { count, leniency, spellingLenient, persona, timerMode, timerCustom };
+      const testSettings = { count, leniency, spellingLenient, persona, timerMode, timerCustom, computational };
       await persistSetSettings(set, { testSettings });
 
       S.loading = true;
@@ -5350,7 +5394,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       render();
 
       try{
-        const res = await generateTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, count, leniency, persona });
+        const res = await generateTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, count, leniency, persona, computational });
         const totalPoints = res.questions.reduce((acc,q)=>acc+q.points, 0);
         S.testSession = {
           questions: res.questions,
@@ -5466,20 +5510,24 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
   if(generateCtestBtn){
     generateCtestBtn.onclick = async () => {
       const set = S.studySets.find(s=>s.id===S.currentSetId);
-      const countSelVal = document.getElementById('ctest-count').value;
-      const count = countSelVal === 'custom' ? (parseInt(document.getElementById('ctest-count-custom').value) || 10) : parseInt(countSelVal);
-      const types = Array.from(document.querySelectorAll('.ctest-type-check:checked')).map(el=>el.value);
-      if(types.length === 0){ alert('Choose at least one question type.'); return; }
+      const typeCounts = {};
+      document.querySelectorAll('.ctest-type-count').forEach(el => {
+        const n = parseInt(el.value) || 0;
+        if(n > 0) typeCounts[el.getAttribute('data-type')] = n;
+      });
+      if(Object.keys(typeCounts).length === 0){ alert('Set at least one question type above 0.'); return; }
+      const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0);
       const leniency = document.getElementById('ctest-leniency').value;
       const spellingLenient = document.getElementById('ctest-spelling').checked;
       const persona = document.getElementById('ctest-persona').value.trim();
+      const computational = document.getElementById('ctest-computational').checked;
       const rec = recommendTimerMinutes(count);
       const timerMode = document.getElementById('ctest-timer-mode').value;
       const timerCustomEl = document.getElementById('ctest-timer-custom');
       const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
       const timerMinutes = resolveTimerMinutes('ctest', rec);
 
-      const customTestSettings = { count, types, leniency, spellingLenient, persona, timerMode, timerCustom };
+      const customTestSettings = { typeCounts, leniency, spellingLenient, persona, timerMode, timerCustom, computational };
       await persistSetSettings(set, { customTestSettings });
 
       S.loading = true;
@@ -5487,7 +5535,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       render();
 
       try{
-        const questions = await generateCustomTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, count, types, leniency, persona });
+        const questions = await generateCustomTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, typeCounts, leniency, persona, computational });
         const totalPoints = questions.reduce((acc,q)=>acc+q.points, 0);
         S.customTestSession = {
           questions,

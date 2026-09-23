@@ -1,0 +1,5065 @@
+
+import { supabase } from './supabase.js';
+
+(function(){
+
+const S = {
+  profile: null,
+  apiKey: '',
+  model: 'gemini-3.6-flash',
+  studySets: [],
+  route: 'loading',
+  authMode: 'signup',
+  currentSetId: null,
+  currentTab: 'notes',
+  newSet: null,
+  quizSession: null,
+  testSession: null,
+  loading: false,
+  loadingMsg: '',
+  error: null,
+  darkMode: localStorage.getItem('darkMode') === 'true',
+  reviewNotifsEnabled: localStorage.getItem('reviewNotifsEnabled') === 'true',
+  modelFallbackModal: null,
+  supabaseClient: supabase,
+  // flashcard reviewer
+  flashcardIdx: 0,
+  flashcardFlipped: false,
+  flashcardDone: [],   // 'got' | 'review'
+  // current tab sub-mode: 'grid' | 'flashcards'
+  notesMode: 'grid',
+  // stats page: which study set ids are included
+  statsSelectedSetIds: null,
+  activeRecallMode: false,
+  tutorDrawer: null,
+  examBuilderSelectedIds: [],
+  // public Explore space
+  exploreSets: [],
+  exploreLoading: false,
+  exploreSearch: '',
+  exploreDetailId: null,
+  exploreTab: 'browse', // 'browse' | 'myuploads'
+  myUploads: [],
+  myUploadsLoading: false,
+  editingPublishedId: null,
+  publishPanelOpen: false,
+  publishCopyable: true,
+  publishDescription: '',
+  publishAnonymous: false,
+  recentCloneInfo: null, // { title, author } shown as a dismissible banner on the dashboard right after cloning
+  stepSolutions: {}, // key `${source}_${idx}` -> { open, loading, steps, error }
+  regenerating: {}, // key `${source}_${idx}` -> boolean, question regeneration in flight
+  deleteAccountOpen: false,
+  _pwChangeError: null,
+  _pwChangeSuccess: false,
+  _deleteError: null,
+  tourActive: false,
+  tourStep: 0,
+  comprehensiveSession: null,
+  customTestSession: null,
+  // dashboard organization: search / tag filter / grouping / inline tag editor
+  dashboardSearch: '',
+  dashboardActiveTags: [],
+  dashboardGroupBy: 'none', // 'none' | 'category'
+  editingTagsSetId: null
+};
+
+const PRESET_API_KEYS = [
+  'AQ.Ab8RN6JSEwHOge-XP7-dbrOBOCbbQlabvPwgbst0u1E0N494_g',
+  'AQ.Ab8RN6Lycttj8QNICVyHO9n6QN6JHR6AaJu1gZ5WWOujxUAWag',
+  'AQ.Ab8RN6Ku-yDZ0iCjCzx-g1m62qUEyDHoXtz0GgbXbi0TXTBrJA'
+];
+
+function applyDarkMode() {
+  if (S.darkMode) document.documentElement.classList.add('dark');
+  else document.documentElement.classList.remove('dark');
+}
+applyDarkMode();
+
+const SAFE_FALLBACK_MODEL = 'gemini-3.6-flash';
+const FALLBACK_MODELS = [
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
+  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
+  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
+];
+
+const PRESET_SCALES = {
+  standard: [ {label:'A', min:90}, {label:'B', min:80}, {label:'C', min:70}, {label:'D', min:60}, {label:'F', min:0} ],
+  plusminus: [
+    {label:'A',min:93},{label:'A-',min:90},{label:'B+',min:87},{label:'B',min:83},{label:'B-',min:80},
+    {label:'C+',min:77},{label:'C',min:73},{label:'C-',min:70},{label:'D+',min:67},{label:'D',min:63},
+    {label:'D-',min:60},{label:'F',min:0}
+  ],
+  passfail: [ {label:'Pass', min:60}, {label:'Fail', min:0} ],
+};
+
+function defaultGradeScale(){ return { mode:'preset', preset:'standard', custom: PRESET_SCALES.standard.slice() }; }
+
+function activeScaleTable(){
+  const gs = S.profile?.gradeScale || defaultGradeScale();
+  if(gs.mode === 'custom') return gs.custom.slice().sort((a,b)=>b.min-a.min);
+  return (PRESET_SCALES[gs.preset] || PRESET_SCALES.standard).slice();
+}
+function letterFor(pct){
+  const table = activeScaleTable();
+  for(const row of table){ if(pct >= row.min) return row.label; }
+  return table[table.length-1]?.label || '';
+}
+
+function exportStudyDataToJSON() {
+    const appData = {
+        profile: S.profile,
+        studySets: S.studySets
+    };
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appData, null, 4));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", "marginalia_backup.json");
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+}
+
+async function loadAll(){
+  if(!S.supabaseClient){
+    S.route = 'landing';
+    render();
+    return;
+  }
+
+  try {
+    const { data: { session } } = await S.supabaseClient.auth.getSession();
+    if(!session){
+      S.profile = null;
+      S.route = 'landing';
+      render();
+      return;
+    }
+
+    const userId = session.user.id;
+    const { data: profileData, error: profileErr } = await S.supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if(profileErr || !profileData){
+      S.profile = null;
+      S.route = 'onboarding';
+      render();
+      return;
+    }
+
+    S.profile = {
+      name: profileData.name,
+      level: profileData.level,
+      gradeScale: profileData.grade_scale || defaultGradeScale(),
+      language: profileData.language || 'english'
+    };
+    S.apiKey = profileData.api_key || '';
+    S.model = profileData.model || 'gemini-3.6-flash';
+
+    const { data: setsData, error: setsErr } = await S.supabaseClient
+      .from('study_sets')
+      .select('*')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+
+    let sets = [];
+    if(setsData){
+      for(const s of setsData){
+        const [snRes, qRes, hRes] = await Promise.all([
+          S.supabaseClient.from('sticky_notes').select('id, title, body, box_level, next_review').eq('study_set_id', s.id),
+          S.supabaseClient.from('quizzes').select('type, question, options, answer, topic, explanation').eq('study_set_id', s.id),
+          S.supabaseClient.from('history').select('type, score_text, pct, letter, timestamp').eq('study_set_id', s.id).order('timestamp', { ascending: true })
+        ]);
+
+        sets.push({
+          id: s.id,
+          title: s.title,
+          notesSummary: s.notes_summary,
+          category: s.category || 'General',
+          tags: Array.isArray(s.tags) ? s.tags : [],
+          clonedFromTitle: s.cloned_from_title || null,
+          clonedFromAuthor: s.cloned_from_author || null,
+          quizSettings: s.quiz_settings || null,
+          testSettings: s.test_settings || null,
+          customTestSettings: s.customtest_settings || null,
+          createdAt: new Date(s.created_at).getTime(),
+          updatedAt: new Date(s.updated_at).getTime(),
+          stickyNotes: (snRes.data || []).map(sn => ({
+            id: sn.id,
+            title: sn.title,
+            body: sn.body,
+            boxLevel: sn.box_level || 0,
+            nextReview: sn.next_review ? new Date(sn.next_review).getTime() : 0
+          })),
+          quiz: qRes.data || [],
+          history: (hRes.data || []).map(h => ({
+            type: h.type,
+            scoreText: h.score_text,
+            pct: h.pct,
+            letter: h.letter,
+            timestamp: h.timestamp
+          }))
+        });
+      }
+    }
+
+    S.studySets = sets;
+    if(!S.statsSelectedSetIds) S.statsSelectedSetIds = sets.map(s=>s.id);
+    S.route = 'dashboard';
+    
+    if(sets.length === 0){
+      await checkAndRunLocalStorageMigration(userId);
+    }
+
+    checkAndNotifyDueCards(false);
+    startReviewNotifTimer();
+
+  } catch(e) {
+    console.error('Load all error', e);
+    S.route = 'onboarding';
+  }
+  render();
+}
+
+async function checkAndRunLocalStorageMigration(userId){
+  try {
+    const localProfile = localStorage.getItem('profile');
+    if(!localProfile) return;
+    const parsedProf = JSON.parse(localProfile);
+    const indexKey = 'studysets:index:' + parsedProf.name;
+    const localIndex = JSON.parse(localStorage.getItem(indexKey) || '[]');
+    
+    if(localIndex.length > 0){
+      S.loading = true;
+      S.loadingMsg = 'Migrating existing local study sets to Supabase...';
+      render();
+
+      for(const id of localIndex){
+        const setKey = 'studyset:' + parsedProf.name + ':' + id;
+        const setObj = JSON.parse(localStorage.getItem(setKey));
+        if(!setObj) continue;
+
+        await S.supabaseClient.from('study_sets').upsert({
+          id: setObj.id,
+          user_id: userId,
+          title: setObj.title,
+          notes_summary: setObj.notesSummary,
+          category: setObj.category || 'General',
+          tags: setObj.tags || [],
+          created_at: new Date(setObj.createdAt || Date.now()).toISOString(),
+          updated_at: new Date(setObj.updatedAt || Date.now()).toISOString()
+        });
+
+        if(setObj.stickyNotes?.length){
+          const snRows = setObj.stickyNotes.map(sn => ({ study_set_id: setObj.id, title: sn.title, body: sn.body, box_level: sn.boxLevel || 0, next_review: new Date(sn.nextReview || Date.now()).toISOString() }));
+          await S.supabaseClient.from('sticky_notes').insert(snRows);
+        }
+
+        if(setObj.quiz?.length){
+          const qRows = setObj.quiz.map(q => ({ study_set_id: setObj.id, type: q.type, question: q.question, options: q.options || [], answer: q.answer, topic: q.topic || null, explanation: q.explanation || null }));
+          await S.supabaseClient.from('quizzes').insert(qRows);
+        }
+
+        if(setObj.history?.length){
+          const hRows = setObj.history.map(h => ({ study_set_id: setObj.id, user_id: userId, type: h.type, score_text: h.scoreText, pct: h.pct, letter: h.letter, timestamp: h.timestamp }));
+          await S.supabaseClient.from('history').insert(hRows);
+        }
+      }
+
+      await loadAll();
+    }
+  } catch(e) {
+    console.error('Migration error', e);
+  } finally {
+    S.loading = false;
+  }
+}
+
+async function saveProfile(){
+  if(!S.supabaseClient || !S.profile) return;
+  const { data: { session } } = await S.supabaseClient.auth.getSession();
+  if(!session) return;
+  await S.supabaseClient.from('profiles').update({
+    name: S.profile.name,
+    level: S.profile.level,
+    grade_scale: S.profile.gradeScale,
+    language: S.profile.language,
+    api_key: S.apiKey,
+    model: S.model,
+    updated_at: new Date().toISOString()
+  }).eq('id', session.user.id);
+}
+
+async function saveApiKey(){ await saveProfile(); }
+async function saveModel(){ await saveProfile(); }
+
+async function changePassword(newPw, confirmPw){
+  S._pwChangeError = null;
+  S._pwChangeSuccess = false;
+  if(!newPw || newPw.length < 6){
+    S._pwChangeError = 'Password must be at least 6 characters.';
+    render();
+    return;
+  }
+  if(newPw !== confirmPw){
+    S._pwChangeError = 'Passwords do not match.';
+    render();
+    return;
+  }
+  try{
+    const { error } = await S.supabaseClient.auth.updateUser({ password: newPw });
+    if(error) throw error;
+    S._pwChangeSuccess = true;
+  }catch(e){
+    S._pwChangeError = e.message;
+  }
+  render();
+}
+
+/**
+ * Deletes everything this account owns that the client is able to delete
+ * under RLS (study sets and their sticky notes/quizzes/history, anything
+ * published to Explore, and the profile row), then signs out.
+ *
+ * IMPORTANT LIMITATION: this does NOT delete the underlying Supabase Auth
+ * user record itself - only Supabase's admin API (service-role key, which
+ * must never be used client-side) can do that. After this runs, the
+ * account's login credentials still technically exist, but every trace of
+ * the person's data is gone and they're signed out. This is disclosed to
+ * the user in the confirmation UI.
+ */
+async function deleteAccountCascade(){
+  if(!S.supabaseClient) return;
+  const { data: { session } } = await S.supabaseClient.auth.getSession();
+  if(!session) return;
+  const userId = session.user.id;
+
+  const setIds = S.studySets.map(s => s.id);
+  if(setIds.length){
+    await S.supabaseClient.from('quizzes').delete().in('study_set_id', setIds);
+    await S.supabaseClient.from('sticky_notes').delete().in('study_set_id', setIds);
+    await S.supabaseClient.from('history').delete().in('study_set_id', setIds);
+    await S.supabaseClient.from('study_sets').delete().in('id', setIds);
+  }
+  await S.supabaseClient.from('published_sets').delete().eq('author_id', userId);
+  await S.supabaseClient.from('profiles').delete().eq('id', userId);
+  await S.supabaseClient.auth.signOut();
+
+  S.profile = null;
+  S.studySets = [];
+  S.route = 'landing';
+  render();
+}
+
+async function saveStudySet(set){
+  if(!S.supabaseClient) return;
+  const { data: { session } } = await S.supabaseClient.auth.getSession();
+  if(!session) return;
+  const userId = session.user.id;
+  set.updatedAt = Date.now();
+
+  await S.supabaseClient.from('study_sets').upsert({
+    id: set.id,
+    user_id: userId,
+    title: set.title,
+    notes_summary: set.notesSummary,
+    category: set.category || 'General',
+    tags: set.tags || [],
+    cloned_from_title: set.clonedFromTitle || null,
+    cloned_from_author: set.clonedFromAuthor || null,
+    created_at: new Date(set.createdAt || Date.now()).toISOString(),
+    updated_at: new Date(set.updatedAt).toISOString()
+  });
+
+  await S.supabaseClient.from('sticky_notes').delete().eq('study_set_id', set.id);
+  if(set.stickyNotes?.length){
+    await S.supabaseClient.from('sticky_notes').insert(set.stickyNotes.map(sn => ({ study_set_id: set.id, title: sn.title, body: sn.body, box_level: sn.boxLevel || 0, next_review: new Date(sn.nextReview || Date.now()).toISOString() })));
+  }
+
+  await S.supabaseClient.from('quizzes').delete().eq('study_set_id', set.id);
+  if(set.quiz?.length){
+    await S.supabaseClient.from('quizzes').insert(set.quiz.map(q => ({ study_set_id: set.id, type: q.type, question: q.question, options: q.options || [], answer: q.answer, topic: q.topic || null, explanation: q.explanation || null })));
+  }
+
+  const idx = S.studySets.findIndex(s=>s.id===set.id);
+  if(idx>=0) S.studySets[idx] = set; else S.studySets.unshift(set);
+}
+
+async function deleteStudySet(id){
+  if(!S.supabaseClient) return;
+  await S.supabaseClient.from('study_sets').delete().eq('id', id);
+  S.studySets = S.studySets.filter(s=>s.id!==id);
+}
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+// ── Streak & activity helpers ──
+function computeStreakFromHistory(allHistory){
+  // allHistory = flat array of {timestamp} from all study sets
+  if(!allHistory || allHistory.length === 0) return { streak: 0, activityDays: new Set() };
+  const daySet = new Set(allHistory.map(h => {
+    const d = new Date(h.timestamp);
+    return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+  }));
+  const activityDays = new Set(allHistory.map(h => {
+    const d = new Date(h.timestamp);
+    d.setHours(0,0,0,0);
+    return d.getTime();
+  }));
+  // count streak going backwards from today
+  let streak = 0;
+  const today = new Date(); today.setHours(0,0,0,0);
+  for(let i = 0; i <= 365; i++){
+    const check = new Date(today.getTime() - i * 86400000);
+    const key = check.getFullYear() + '-' + check.getMonth() + '-' + check.getDate();
+    if(daySet.has(key)){ streak++; }
+    else if(i > 0){ break; } // allow today to be missing (haven't studied yet today)
+  }
+  return { streak, activityDays };
+}
+
+function renderStreakBar(allHistory){
+  const { streak, activityDays } = computeStreakFromHistory(allHistory);
+  // Build 10-week heatmap (70 days ending today)
+  const today = new Date(); today.setHours(0,0,0,0);
+  let cells = '';
+  for(let i = 69; i >= 0; i--){
+    const d = new Date(today.getTime() - i * 86400000);
+    d.setHours(0,0,0,0);
+    const isToday = i === 0;
+    // count activity on that day
+    const dayStart = d.getTime();
+    const dayEnd = dayStart + 86399999;
+    const count = allHistory.filter(h => h.timestamp >= dayStart && h.timestamp <= dayEnd).length;
+    const cls = count === 0 ? '' : count === 1 ? 'active-1' : count === 2 ? 'active-2' : 'active-3';
+    cells += '<div class="hm-cell ' + cls + (isToday?' today':'') + '" title="' + d.toLocaleDateString() + (count?' — '+count+' session'+(count>1?'s':''):'') + '"></div>';
+  }
+  return (
+    '<div class="streak-section">' +
+      '<div class="streak-bar">' +
+        '<span class="streak-flame">🔥</span>' +
+        '<span class="streak-count">' + streak + '</span>' +
+        '<span class="streak-label">day streak</span>' +
+      '</div>' +
+      '<div style="margin-bottom:var(--sp-2); font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono);">Last 10 weeks of activity</div>' +
+      '<div class="activity-heatmap">' + cells + '</div>' +
+    '</div>'
+  );
+}
+
+// ── Weak concept analysis ──
+function computeWeakTopics(sess){
+  // sess = a submitted quiz session {questions, gradedResults}
+  if(!sess || !sess.questions || !sess.questions.length) return [];
+  const topicMap = {};
+  sess.questions.forEach((q, qi) => {
+    const topic = q.topic || TYPE_LABELS[q.type] || q.type;
+    if(!topicMap[topic]) topicMap[topic] = { correct: 0, total: 0 };
+    topicMap[topic].total++;
+    if(sess.gradedResults[qi] && sess.gradedResults[qi].correct) topicMap[topic].correct++;
+  });
+  const DEFAULT_TYPE_COUNTS = { multiple_choice: 4, true_false: 2, short_answer: 3, fill_blank: 1 };
+
+const COMPUTATIONAL_INSTRUCTION = 'This study set is in a computational subject. Where the material supports it, write actual computational/numeric practice problems requiring real calculation (solve for a value, compute a numeric result, apply a formula, work through a multi-step calculation) rather than purely conceptual or definition-based questions — mirror how an instructor in this subject would actually test problem-solving, not just recall.';
+
+function isComputationalSubject(category){
+  return /math|algebra|calculus|geometry|trigonometry|statistics|physics|chemistry|engineering|arithmetic/i.test(category || '');
+}
+  return Object.entries(topicMap)
+    .map(([topic, v]) => ({ topic, correct: v.correct, total: v.total, pct: v.total ? Math.round(v.correct/v.total*100) : 0 }))
+    .sort((a,b) => a.pct - b.pct);
+}
+
+function renderWeakAreas(sess){
+  const weak = computeWeakTopics(sess);
+  if(weak.length < 2) return ''; // not useful with only one topic
+  return (
+    '<div style="margin: var(--sp-5) 0;">' +
+      '<h3 style="margin-bottom:var(--sp-3); font-size:15px;">Breakdown by Concept</h3>' +
+      weak.map(w => (
+        '<div class="weak-row">' +
+          '<span class="weak-topic">' + esc(w.topic) + '</span>' +
+          '<div class="weak-bar-wrap"><div class="weak-bar-fill" style="width:' + w.pct + '%; background:' + (w.pct < 60 ? 'var(--oxblood)' : w.pct < 85 ? 'var(--amber)' : 'var(--green)') + ';"></div></div>' +
+          '<span class="weak-pct">' + w.correct + '/' + w.total + '</span>' +
+        '</div>'
+      )).join('') +
+    '</div>'
+  );
+}
+
+// ── Adaptive / manual difficulty ──
+function getRecentScores(set, n=3){
+  const hist = (set.history || []).slice(-n);
+  return hist.map(h => h.pct);
+}
+function getDifficultyMode(set){
+  return (set.quizSettings && set.quizSettings.difficultyMode) || 'dynamic';
+}
+function difficultyDisplay(set){
+  const mode = getDifficultyMode(set);
+  if(mode === 'easy') return { label: 'Easy (manual)', cls: '', note: 'Difficulty manually set to easy.' };
+  if(mode === 'medium') return { label: 'Medium (manual)', cls: 'medium', note: 'Difficulty manually set to medium.' };
+  if(mode === 'hard') return { label: 'Hard (manual)', cls: 'hard', note: 'Difficulty manually set to hard.' };
+  // dynamic mode: infer from recent scores
+  const recent = getRecentScores(set);
+  if(recent.length < 2) return null;
+  const avg = Math.round(recent.reduce((a,b)=>a+b,0)/recent.length);
+  if(avg >= 88) return { label: 'Dynamic: Harder', cls: 'hard', note: 'Dynamic mode — scoring ' + avg + '% avg, questions will be more challenging.' };
+  if(avg <= 55) return { label: 'Dynamic: Easier', cls: '', note: 'Dynamic mode — scoring ' + avg + '% avg, questions will be more accessible.' };
+  return null;
+}
+
+function requestModelFallback(failedModel, errorMsg) {
+  return new Promise((resolve) => {
+    let fallbackModel = FALLBACK_MODELS.map(m => m.id).find(m => m !== failedModel) || SAFE_FALLBACK_MODEL;
+    
+    S.modelFallbackModal = {
+      failedModel,
+      fallbackModel,
+      errorMsg,
+      resolve
+    };
+    S.loading = false;
+    render();
+  });
+}
+
+async function callGemini(parts, { jsonSchema=true } = {}){
+  if(!S.apiKey){ throw new Error('No API key set. Add your Google AI Studio API key in Settings.'); }
+  const originalModel = S.model || SAFE_FALLBACK_MODEL;
+  let triedModels = [];
+  let currentModel = originalModel;
+
+  while(true){
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + currentModel + ':generateContent?key=' + encodeURIComponent(S.apiKey);
+    const body = {
+      contents: [{ role: 'user', parts }],
+      generationConfig: jsonSchema ? { responseMimeType: 'application/json', temperature: 0.4 } : { temperature: 0.4 }
+    };
+    let res;
+    try{
+      res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }catch(networkErr){
+      throw new Error('Could not reach the Gemini API. Ensure you are connected to the internet and API Key is valid.');
+    }
+
+    if(res.ok){
+      const data = await res.json();
+      if(data.promptFeedback?.blockReason){ throw new Error('Request was blocked: ' + data.promptFeedback.blockReason); }
+      const cand = data.candidates && data.candidates[0];
+      const text = cand?.content?.parts?.map(p=>p.text||'').join('') || '';
+      if(!text) throw new Error('Empty response from the model. Try again.');
+
+      if(currentModel !== originalModel){
+        S.model = currentModel;
+        await saveModel();
+        S.autoSwitchedModel = { from: originalModel, to: currentModel };
+      }
+
+      if(!jsonSchema) return text;
+      try{ return JSON.parse(text); }
+      catch(e){
+        const cleaned = text.replace(/```json/gi,'').replace(/```/g,'').trim();
+        return JSON.parse(cleaned);
+      }
+    }
+
+    let msg = '';
+    try{ const j = await res.json(); msg = j.error?.message || JSON.stringify(j); }catch(e){ msg = await res.text(); }
+
+    const retired = res.status===404 && /no longer available|not found for API version|is not found/i.test(msg);
+    const highDemand = res.status === 429 || /resource_exhausted|quota|overloaded|high demand|too many requests/i.test(msg);
+
+    if(retired || highDemand){
+      triedModels.push(currentModel);
+      const nextModel = FALLBACK_MODELS.map(m=>m.id).find(id => triedModels.indexOf(id) === -1);
+      if(nextModel){
+        // Silently cycle to the next available model - no prompt, no interruption.
+        currentModel = nextModel;
+        continue;
+      }
+      if(highDemand){
+        // Every model in the list is currently busy - only now ask the user.
+        const shouldRetry = await requestModelFallback(currentModel, msg);
+        if(shouldRetry){
+          triedModels = [];
+          currentModel = originalModel;
+          continue;
+        }
+      }
+    }
+
+    throw new Error('Gemini API error (' + res.status + '): ' + msg.slice(0,300));
+  }
+}
+
+async function callGeminiChat(messages){
+  if(!S.apiKey){ throw new Error('No API key set. Add your Google AI Studio API key in Settings.'); }
+  const originalModel = S.model || SAFE_FALLBACK_MODEL;
+  let triedModels = [];
+  let currentModel = originalModel;
+  const contents = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.text }] }));
+
+  while(true){
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + currentModel + ':generateContent?key=' + encodeURIComponent(S.apiKey);
+    const body = { contents, generationConfig: { temperature: 0.5 } };
+    let res;
+    try{
+      res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }catch(networkErr){
+      throw new Error('Could not reach the Gemini API. Ensure you are connected to the internet and API Key is valid.');
+    }
+
+    if(res.ok){
+      const data = await res.json();
+      if(data.promptFeedback?.blockReason){ throw new Error('Request was blocked: ' + data.promptFeedback.blockReason); }
+      const cand = data.candidates && data.candidates[0];
+      const text = cand?.content?.parts?.map(p=>p.text||'').join('') || '';
+      if(!text) throw new Error('Empty response from the model. Try again.');
+
+      if(currentModel !== originalModel){
+        S.model = currentModel;
+        await saveModel();
+        S.autoSwitchedModel = { from: originalModel, to: currentModel };
+      }
+      return text;
+    }
+
+    let msg = '';
+    try{ const j = await res.json(); msg = j.error?.message || JSON.stringify(j); }catch(e){ msg = await res.text(); }
+
+    const retired = res.status===404 && /no longer available|not found for API version|is not found/i.test(msg);
+    const highDemand = res.status === 429 || /resource_exhausted|quota|overloaded|high demand|too many requests/i.test(msg);
+
+    if(retired || highDemand){
+      triedModels.push(currentModel);
+      const nextModel = FALLBACK_MODELS.map(m=>m.id).find(id => triedModels.indexOf(id) === -1);
+      if(nextModel){
+        currentModel = nextModel;
+        continue;
+      }
+      if(highDemand){
+        const shouldRetry = await requestModelFallback(currentModel, msg);
+        if(shouldRetry){
+          triedModels = [];
+          currentModel = originalModel;
+          continue;
+        }
+      }
+    }
+
+    throw new Error('Gemini API error (' + res.status + '): ' + msg.slice(0,300));
+  }
+}
+
+async function fileToInlinePart(file){
+  if(S.supabaseClient){
+    try {
+      const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+      await S.supabaseClient.storage.from('study-files').upload(fileName, file);
+    } catch(err){
+      console.error('Supabase storage upload error', err);
+    }
+  }
+
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const base64 = reader.result.split(',')[1];
+      resolve({ inline_data: { mime_type: file.type || 'application/octet-stream', data: base64 } });
+    };
+    reader.onerror = ()=> reject(new Error('Could not read file: ' + file.name));
+    reader.readAsDataURL(file);
+  });
+}
+
+const TYPE_LABELS = {
+  multiple_choice: 'Multiple choice',
+  true_false: 'True or false',
+  short_answer: 'Short answer',
+  fill_blank: 'Fill in the blank',
+};
+
+const DEFAULT_TYPE_COUNTS = { multiple_choice: 4, true_false: 2, short_answer: 3, fill_blank: 1 };
+
+const COMPUTATIONAL_INSTRUCTION = 'This study set is in a computational subject. Where the material supports it, write actual computational/numeric practice problems requiring real calculation (solve for a value, compute a numeric result, apply a formula, work through a multi-step calculation) rather than purely conceptual or definition-based questions — mirror how an instructor in this subject would actually test problem-solving, not just recall.';
+
+function isComputationalSubject(category){
+  return /math|algebra|calculus|geometry|trigonometry|statistics|physics|chemistry|engineering|arithmetic/i.test(category || '');
+}
+
+const LATEX_INSTRUCTION = 'For any mathematical, chemical, or physics formulas/equations, write them using LaTeX syntax: wrap inline expressions in single dollar signs like $x^2 + 1$ and standalone/display equations in double dollar signs like $$E = mc^2$$. Use proper LaTeX commands (\\frac, \\sqrt, \\rightarrow, subscripts/superscripts, etc). Do not use LaTeX for plain prose.';
+
+function levelInstruction(level){
+  if(level === 'college'){
+    return 'The student is at COLLEGE level. Use precise academic vocabulary, expect nuanced/analytical thinking, and do not oversimplify — write as you would for an undergraduate course.';
+  }
+  return 'The student is at HIGH SCHOOL level. Use clear, accessible vocabulary and more straightforward sentence structure — avoid unnecessarily advanced academic jargon, but do not dumb down the actual concepts.';
+}
+
+function getTargetLang(){
+  const lang = S.profile?.language;
+  if(!lang || lang === 'english') return 'English';
+  if(lang === 'albanian') return 'Albanian (Gjuha Shqipe)';
+  // support any future language value directly
+  return lang.charAt(0).toUpperCase() + lang.slice(1);
+}
+
+async function generateStudyMaterials({ title, notesText, files, level, count, types, recentScores }){
+  const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
+  const targetLang = getTargetLang();
+  let difficultyNote = '';
+  if(recentScores && recentScores.length >= 2){
+    const avg = Math.round(recentScores.reduce((a,b)=>a+b,0)/recentScores.length);
+    if(avg >= 88) difficultyNote = 'The student has recently scored ' + avg + '% on average — increase question difficulty and include more nuanced, higher-order thinking questions.';
+    else if(avg <= 55) difficultyNote = 'The student has recently scored ' + avg + '% on average — use slightly more straightforward, accessible questions to build confidence.';
+  }
+  const prompt = [
+    'You are building study materials for a ' + (level==='college'?'college':'high school') + ' student.',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    'Topic / set title: ' + title,
+    difficultyNote ? 'Adaptive difficulty instruction: ' + difficultyNote : '',
+    '',
+    'Source material follows below as pasted notes and/or attached files (images or PDFs of notes).',
+    'Read everything carefully before writing anything.',
+    '',
+    'IMPORTANT: All generated text content (notesSummary, stickyNotes, quiz questions, options, answers, explanations) MUST be entirely in ' + targetLang + '.',
+    '',
+    'First assess whether there is enough source material to generate ' + count + ' meaningful questions. Set "sufficientMaterial" to false if notes are too sparse (under ~100 words and no files), otherwise true.',
+    '',
+    'Also classify the academic subject this material belongs to, based on its content (e.g. if it looks like chemistry notes, classify it as Chemistry). Use a short, human-friendly subject name.',
+    '',
+    'Produce a JSON object with exactly these fields:',
+    '{',
+    '  "sufficientMaterial": boolean,',
+    '  "category": string,  // short academic subject classification, e.g. "Chemistry", "World History", "Calculus", "Spanish", "Biology", "Computer Science" — pick the single best-fitting subject, use "General" only if genuinely unclear',
+    '  "notesSummary": string,  // clear, consolidated plain-text write-up, thorough enough to write a test from, no markup, 300-900 words',
+    '  "stickyNotes": [ { "title": string, "body": string } ],  // 6-12 revision notes, each title is a concept name, body is 1-3 sentences for an index card',
+    '  "quiz": [',
+    '    {',
+    '      "type": one of ["multiple_choice","true_false","short_answer","fill_blank"],',
+    '      "topic": string,  // 2-4 word concept label this question tests, e.g. "Due Process", "Cell Mitosis"',
+    '      "question": string,',
+    '      "options": [string],  // only for multiple_choice: exactly 4 options',
+    '      "answer": string,',
+    '      "explanation": string  // 1-2 sentences explaining WHY the answer is correct, shown after grading',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    'Generate exactly ' + count + ' quiz questions, using only these types: ' + typeList + '.',
+    'Distribute types roughly evenly. Base every question strictly on the source material — nothing invented.',
+    'For fill_blank, use "_____" in the question text; give the exact missing word/phrase as the answer.',
+    'Calibrate difficulty for a ' + (level==='college'?'college':'high school') + ' student.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+
+  const parts = [{ text: prompt }];
+  if(files && files.length){
+    for(const f of files) parts.push({ inline_data: f.inline_data });
+  }
+  if(notesText && notesText.trim()){
+    parts.push({ text: 'Pasted notes:\n' + notesText });
+  }
+  const result = await callGemini(parts);
+
+  // Warn user if material was flagged as insufficient
+  if(result.sufficientMaterial === false){
+    S._insufficientMaterialWarning = true;
+  } else {
+    S._insufficientMaterialWarning = false;
+  }
+  return result;
+}
+
+async function gradeShortAnswers(items, level){
+  const targetLang = getTargetLang();
+  const prompt = [
+    'You are an expert, fair teacher grading student quiz answers in ' + targetLang + '.',
+    levelInstruction(level || 'high school'),
+    'Grade each student answer below against the expected answer with full flexibility and free will. Account for language differences, true/false translations (e.g., matching English "True" or "False" to Albanian "E vërtetë" or "E rreme"/"E gabuar"), synonyms, spelling, case, and word order; the student does not need to match the expected answer word for word, only demonstrate correct substance and conceptual understanding.',
+    'Return a JSON array, same length and order as the input, where each element is:',
+    '{ "correct": boolean, "feedback": string }',
+    'Keep feedback to one short, constructive sentence in ' + targetLang + '.',
+    '',
+    'Items:',
+    JSON.stringify(items.map((it,i)=>({ index:i, question: it.question, expectedAnswer: it.expected, studentAnswer: it.userAnswer || '(no answer given)' }))),
+  ].join('\n');
+  return callGemini([{ text: prompt }]);
+}
+
+const DIFFICULTY_TIER_PROMPTS = {
+  easy: 'EASY difficulty: use simple, direct, unambiguous wording. Each question should test exactly ONE concept in isolation — no combining multiple ideas, no multi-step reasoning. Favor straightforward recall, definitions, and basic identification. A student who understands the core concept should be able to answer quickly and confidently.',
+  medium: 'MEDIUM difficulty: require a bit of applied reasoning — connecting two related facts, interpreting a short example, or explaining why/how something works — while still centering on a single core idea per question. More than pure recall, but not multi-layered.',
+  hard: 'HARD difficulty: increase CONCEPTUAL depth, not sentence length. Require synthesis, analysis, comparison across ideas, or applying a concept to a new/unfamiliar scenario. Test deeper understanding, edge cases, and "why" over "what". Do NOT simply pad questions with extra descriptive text, longer scenarios, or dense wording to make them seem harder — a hard question can still be a single crisp sentence. The difficulty must come from the THINKING required, not from how much there is to read. Never turn this into a reading-comprehension exercise.'
+};
+const DIFFICULTY_SHARED_PROMPT = 'Regardless of difficulty tier: vary question length naturally — mix short, medium, and longer questions throughout the set rather than making every question uniform length. Keep all correct answers and curriculum/factual accuracy completely unaffected by difficulty — difficulty changes how a question is asked and what reasoning it requires, never whether the content or the correct answer is accurate.';
+
+function resolveDifficultyTier(mode, recentScores){
+  if(mode === 'easy' || mode === 'medium' || mode === 'hard') return mode;
+  // dynamic: map straight onto the same tiers based on recent performance
+  if(recentScores && recentScores.length >= 2){
+    const avg = Math.round(recentScores.reduce((a,b)=>a+b,0)/recentScores.length);
+    if(avg >= 88) return 'hard';
+    if(avg <= 55) return 'easy';
+  }
+  return 'medium';
+}
+
+async function generateQuizOnly({ title, notesSummary, level, typeCounts, recentScores, difficultyMode, avoidQuestions, computational }){
+  const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0);
+  const typeBreakdown = Object.entries(typeCounts).map(([t,n]) => n + ' ' + TYPE_LABELS[t]).join(', ');
+  const targetLang = getTargetLang();
+  const mode = difficultyMode || 'dynamic';
+  const tier = resolveDifficultyTier(mode, recentScores);
+  let difficultyNote = DIFFICULTY_TIER_PROMPTS[tier] + ' ' + DIFFICULTY_SHARED_PROMPT;
+  if(mode === 'dynamic' && recentScores && recentScores.length >= 2){
+    const avg = Math.round(recentScores.reduce((a,b)=>a+b,0)/recentScores.length);
+    difficultyNote += ' (This tier was auto-selected because the student\'s recent average is ' + avg + '%.)';
+  }
+  const prompt = [
+    'Write a fresh practice quiz for a ' + (level==='college'?'college':'high school') + ' student on "' + title + '", based only on this notes summary:',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    computational ? COMPUTATIONAL_INSTRUCTION : '',
+    '',
+    notesSummary,
+    '',
+    'Difficulty instruction: ' + difficultyNote,
+    'IMPORTANT: All text MUST be entirely in ' + targetLang + '.',
+    '',
+    'Produce a JSON object: { "quiz": [ { "type": one of ["multiple_choice","true_false","short_answer","fill_blank"], "topic": string, "question": string, "options": [string] (4, only for multiple_choice), "answer": string, "explanation": string } ] }',
+    'Generate exactly ' + count + ' NEW questions (do not repeat obvious prior phrasing), broken down EXACTLY as: ' + typeBreakdown + '. Do not deviate from these per-type counts.',
+    computational ? COMPUTATIONAL_INSTRUCTION : '',
+    avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
+    'For fill_blank use "_____" in the question text.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  const res = await callGemini([{ text: prompt }]);
+  return res.quiz;
+}
+
+async function generateMoreStickyNotes({ title, notesSummary, level, existingTitles, count }){
+  const targetLang = getTargetLang();
+  const prompt = [
+    'Write ' + count + ' NEW revision flashcards for a ' + (level==='college'?'college':'high school') + ' student studying "' + title + '", based only on this notes summary:',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    '',
+    notesSummary,
+    '',
+    'Do NOT repeat these concepts, which already have cards: ' + JSON.stringify(existingTitles),
+    'Cover different concepts, details, or angles from the same material.',
+    'IMPORTANT: All text MUST be entirely in ' + targetLang + '.',
+    'Produce a JSON object: { "stickyNotes": [ { "title": string, "body": string } ] }, exactly ' + count + ' cards, title is a concept name, body is 1-3 sentences for an index card.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  const res = await callGemini([{ text: prompt }]);
+  return res.stickyNotes;
+}
+
+// ── Timer helpers (shared by quiz + formal test) ──
+function recommendTimerMinutes(count){
+  return Math.max(5, Math.round((count + 5) / 5) * 5);
+}
+function formatTimer(totalSeconds){
+  const s = Math.max(0, totalSeconds);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m + ':' + String(sec).padStart(2,'0');
+}
+let activeTimerInterval = null;
+function clearActiveTimer(){
+  if(activeTimerInterval){ clearInterval(activeTimerInterval); activeTimerInterval = null; }
+}
+function startSessionTimer(session, onExpire){
+  clearActiveTimer();
+  if(!session || !session.timerTotalSeconds) return;
+  if(session.timerRemaining == null) session.timerRemaining = session.timerTotalSeconds;
+  activeTimerInterval = setInterval(() => {
+    session.timerRemaining--;
+    const el = document.getElementById('timer-display');
+    if(el){
+      el.textContent = formatTimer(session.timerRemaining);
+      el.classList.toggle('timer-warn', session.timerRemaining <= 60);
+    }
+    if(session.timerRemaining <= 0){
+      clearActiveTimer();
+      onExpire();
+    }
+  }, 1000);
+}
+
+function renderTimerSetting(idPrefix, recommendedMinutes, currentMode, currentCustom){
+  const mode = currentMode || 'none';
+  return (
+    '<div class="field">' +
+      '<label class="field-label">Timer</label>' +
+      '<select id="' + idPrefix + '-timer-mode">' +
+        '<option value="none" ' + (mode==='none'?'selected':'') + '>No timer</option>' +
+        '<option value="recommended" ' + (mode==='recommended'?'selected':'') + '>Recommended (' + recommendedMinutes + ' min)</option>' +
+        '<option value="custom" ' + (mode==='custom'?'selected':'') + '>Custom</option>' +
+      '</select>' +
+      '<input type="number" id="' + idPrefix + '-timer-custom" min="1" max="240" value="' + (currentCustom || recommendedMinutes) + '" placeholder="Minutes" style="margin-top:8px; display:' + (mode==='custom'?'block':'none') + '; width:120px;" />' +
+    '</div>'
+  );
+}
+function resolveTimerMinutes(idPrefix, recommendedMinutes){
+  const mode = document.getElementById(idPrefix + '-timer-mode').value;
+  if(mode === 'none') return null;
+  if(mode === 'recommended') return recommendedMinutes;
+  const custom = parseInt(document.getElementById(idPrefix + '-timer-custom').value);
+  return (custom && custom > 0) ? custom : recommendedMinutes;
+}
+
+async function persistSetSettings(set, patch){
+  Object.assign(set, patch);
+  if(!S.supabaseClient) return;
+  const { data: { session } } = await S.supabaseClient.auth.getSession();
+  if(!session) return;
+  const dbPatch = {};
+  if('quizSettings' in patch) dbPatch.quiz_settings = patch.quizSettings;
+  if('testSettings' in patch) dbPatch.test_settings = patch.testSettings;
+  if('customTestSettings' in patch) dbPatch.customtest_settings = patch.customTestSettings;
+  if('tags' in patch) dbPatch.tags = patch.tags;
+  if(Object.keys(dbPatch).length){
+    await S.supabaseClient.from('study_sets').update(dbPatch).eq('id', set.id);
+  }
+}
+
+async function generateTest({ title, notesSummary, level, count, leniency, persona, avoidQuestions, targetPoints, computational }){
+  const targetLang = getTargetLang();
+  const leniencyNote = {
+    strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
+    standard: 'Grading will be STANDARD — write rubrics that reward solid understanding without demanding perfect wording.',
+    lenient: 'Grading will be LENIENT — write rubrics focused on core understanding, forgiving of minor gaps or imprecision.'
+  }[leniency || 'standard'];
+  const personaNote = persona && persona.trim() ? ('Write questions in the voice/spirit of this examiner persona: "' + persona.trim() + '".') : '';
+  const prompt = [
+    'Write a formal test for a ' + (level==='college'?'college':'high school') + ' student, based only on the following study material summary for "' + title + '":',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    leniencyNote,
+    personaNote,
+    computational ? COMPUTATIONAL_INSTRUCTION : '',
+    '',
+    notesSummary,
+    '',
+    'IMPORTANT: Write all test questions, rubrics, and related text entirely in ' + targetLang + '.',
+    'Produce a JSON object: { "questions": [ { "type": "short_answer" or "essay", "question": string, "rubric": string, "points": number } ] }.',
+    'Write exactly ' + count + ' questions total. Mostly short_answer (a sentence or two expected); include a small number of essay questions only if the material and question count support it (a paragraph expected).',
+    avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
+    'The "rubric" field should briefly describe what a full-credit answer must include, for grading purposes later; do not show this to the student.',
+    targetPoints ? ('This question is worth exactly ' + targetPoints + ' points — set "points" to ' + targetPoints + '.') : 'Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  return callGemini([{ text: prompt }]);
+}
+
+async function generateCustomTest({ title, notesSummary, level, typeCounts, leniency, persona, avoidQuestions, targetPoints, computational }){
+  const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0);
+  const typeBreakdown = Object.entries(typeCounts).map(([t,n]) => n + ' ' + TYPE_LABELS[t]).join(', ');
+  const targetLang = getTargetLang();
+  const typeList = Object.keys(typeCounts).map(t=>TYPE_LABELS[t]).join(', ');
+  const leniencyNote = {
+    strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
+    standard: 'Grading will be STANDARD — write rubrics that reward solid understanding without demanding perfect wording.',
+    lenient: 'Grading will be LENIENT — write rubrics focused on core understanding, forgiving of minor gaps or imprecision.'
+  }[leniency || 'standard'];
+  const personaNote = persona && persona.trim() ? ('Write questions in the voice/spirit of this examiner persona: "' + persona.trim() + '".') : '';
+  const prompt = [
+    'Write a formal, point-graded test for a ' + (level==='college'?'college':'high school') + ' student, based only on the following study material summary for "' + title + '":',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    leniencyNote,
+    personaNote,
+    computational ? COMPUTATIONAL_INSTRUCTION : '',
+    '',
+    notesSummary,
+    '',
+    'IMPORTANT: Write all test questions, rubrics, options, and related text entirely in ' + targetLang + '.',
+    'Produce a JSON object: { "questions": [ { "type": one of [' + Object.keys(typeCounts).map(t=>'"'+t+'"').join(', ') + '], "question": string, "options": [string] (exactly 4, ONLY for multiple_choice), "answer": string, "rubric": string, "points": number } ] }.',
+    'Write exactly ' + count + ' questions total, broken down EXACTLY as: ' + typeBreakdown + '. Use only these question types: ' + typeList + '.',
+    'For every question type, "answer" is the exact correct answer (for multiple_choice, exactly matching one of the options; for true_false, "True" or "False"; for fill_blank, the missing word/phrase; for short_answer, a model correct answer).',
+    'The "rubric" field should briefly describe what a full-credit answer needs to include, for grading purposes later; do not show it to the student. For multiple_choice and true_false, the rubric can simply restate why the correct answer is right.',
+    'For fill_blank, use "_____" in the question text for the blank.',
+    avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
+    targetPoints ? ('This question is worth exactly ' + targetPoints + ' points — set "points" to ' + targetPoints + '.') : 'Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  const res = await callGemini([{ text: prompt }]);
+  return res.questions;
+}
+
+async function gradeTest(items, { level, leniency, spellingLenient, persona } = {}){
+  const targetLang = getTargetLang();
+  const leniencyNote = {
+    strict: 'Grade STRICTLY: require complete, precise answers matching the rubric closely for full credit; deduct meaningfully for gaps.',
+    standard: 'Grade with STANDARD fairness: award credit for solid understanding, partial credit for partial understanding.',
+    lenient: 'Grade LENIENTLY: be generous with partial credit whenever the core idea is present, even if execution is imperfect.'
+  }[leniency || 'standard'];
+  const spellingNote = spellingLenient === false
+    ? 'Treat spelling and grammar errors as meaningful deductions where they obscure precise terminology.'
+    : 'Ignore minor spelling, grammar, and typo errors entirely — grade only on substance and understanding.';
+  const personaNote = persona && persona.trim() ? ('Write your feedback in the voice of this examiner persona: "' + persona.trim() + '", while staying constructive and clear.') : '';
+  const prompt = [
+    'You are grading a student test in ' + targetLang + '. For each question, compare the student answer to the rubric and award partial credit fairly. The student does not need exact wording, only to demonstrate the required understanding.',
+    levelInstruction(level || 'high school'),
+    leniencyNote,
+    spellingNote,
+    personaNote,
+    'Return a JSON array, same length and order as input:',
+    '{ "pointsEarned": number, "feedback": string }',
+    'pointsEarned must be between 0 and the question\'s points value (may be fractional). Feedback is one or two short sentences explaining the score, written directly to the student in ' + targetLang + '.',
+    '',
+    'Items:',
+    JSON.stringify(items.map((it,i)=>({ index:i, question: it.question, rubric: it.rubric, pointsPossible: it.points, studentAnswer: it.userAnswer || '(no answer given)' }))),
+  ].filter(Boolean).join('\n');
+  return callGemini([{ text: prompt }]);
+}
+
+const root = document.getElementById('root');
+
+function render(){
+  if(S.route === 'loading'){ root.innerHTML = ''; return; }
+  let html = '';
+  if(S.route === 'landing') html = renderLanding();
+  else if(S.route === 'onboarding') html = renderOnboarding();
+  else {
+    html = '<div class="app">' + renderTopbar() + renderAutoSwitchBanner() + renderRoute() + renderFooter() + '</div>';
+  }
+  if(S.loading){ html += renderLoadingOverlay(); }
+  if(S.modelFallbackModal){ html += renderModelFallbackModal(); }
+  if(S.tutorDrawer){ html += renderTutorDrawer(); }
+  if(S.tourActive){ html += renderTourOverlay(); }
+  root.innerHTML = html;
+  bindEvents();
+
+  if(S.route === 'stats'){
+    initStatsCharts();
+  }
+  renderMathInRoot();
+  positionTourOverlay();
+}
+
+function renderMathInRoot(){
+  if(typeof renderMathInElement !== 'function') return;
+  try{
+    renderMathInElement(root, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\[', right: '\\]', display: true },
+        { left: '$', right: '$', display: false },
+        { left: '\\(', right: '\\)', display: false }
+      ],
+      throwOnError: false
+    });
+  }catch(e){ /* ignore malformed LaTeX */ }
+}
+
+function renderAutoSwitchBanner(){
+  if(!S.autoSwitchedModel) return '';
+  const a = S.autoSwitchedModel;
+  return '<div class="callout warn" style="margin-bottom:var(--sp-5); display:flex; justify-content:space-between; align-items:center; gap:var(--sp-4);">' +
+    '<span>"' + esc(a.from) + '" is retired, switched to "' + esc(a.to) + '" and saved it in Settings.</span>' +
+    '<button type="button" class="linklike" id="dismiss-autoswitch" style="background:none;border:none;color:inherit;text-decoration:underline;font-size:12px;padding:0;">Dismiss</button>' +
+  '</div>';
+}
+
+// ── First-time product tour ──
+const TOUR_STEPS = [
+  {
+    selector: '[data-nav="newset"]',
+    title: 'Create your first study set',
+    text: 'Paste your notes or upload photos/PDFs of them here. The AI turns them into a notes summary, sticky-note flashcards, and a starter quiz.'
+  },
+  {
+    selector: '[data-nav="explore"]',
+    title: 'Explore',
+    text: 'Browse study sets other people have published. Copyable ones you can add straight to your own account; view-only ones you can still read through.'
+  },
+  {
+    selector: '[data-nav="stats"]',
+    title: 'Stats',
+    text: 'Every quiz, test, and exam you take gets tracked here — score trends, your strongest and weakest subjects, and a day streak.'
+  },
+  {
+    selector: '[data-nav="settings"]',
+    title: 'Settings — add your API key here',
+    text: 'This is the important one: add your free Gemini API key here to start generating study sets (grab one from Google AI Studio, it takes a minute). Education level, language, dark mode, and Daily Review reminders all live here too.'
+  }
+];
+
+function maybeStartTour(userId){
+  try{
+    if(localStorage.getItem('tourSeen_' + userId) === 'true') return;
+  }catch(e){}
+  S.tourActive = true;
+  S.tourStep = 0;
+}
+
+async function endTourAndPersist(){
+  S.tourActive = false;
+  if(S.supabaseClient){
+    try{
+      const { data: { session } } = await S.supabaseClient.auth.getSession();
+      if(session) localStorage.setItem('tourSeen_' + session.user.id, 'true');
+    }catch(e){}
+  }
+  render();
+}
+
+function positionTourOverlay(){
+  const highlight = document.getElementById('tour-highlight');
+  const tooltip = document.getElementById('tour-tooltip');
+  if(!highlight || !tooltip || !S.tourActive) return;
+  const step = TOUR_STEPS[S.tourStep];
+  if(!step){ endTourAndPersist(); return; }
+  const target = document.querySelector(step.selector);
+  if(!target){
+    // target isn't on screen (e.g. different route) - just skip to next step
+    S.tourStep++;
+    if(S.tourStep >= TOUR_STEPS.length){ endTourAndPersist(); }
+    else render();
+    return;
+  }
+  const rect = target.getBoundingClientRect();
+  const pad = 6;
+  highlight.style.top = (rect.top - pad) + 'px';
+  highlight.style.left = (rect.left - pad) + 'px';
+  highlight.style.width = (rect.width + pad*2) + 'px';
+  highlight.style.height = (rect.height + pad*2) + 'px';
+
+  const tooltipWidth = 300;
+  let tLeft = rect.left;
+  if(tLeft + tooltipWidth > window.innerWidth - 16) tLeft = window.innerWidth - tooltipWidth - 16;
+  if(tLeft < 16) tLeft = 16;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const placeBelow = spaceBelow > 180;
+  tooltip.style.left = tLeft + 'px';
+  tooltip.style.width = tooltipWidth + 'px';
+  if(placeBelow){
+    tooltip.style.top = (rect.bottom + 14) + 'px';
+    tooltip.style.bottom = 'auto';
+  } else {
+    tooltip.style.top = 'auto';
+    tooltip.style.bottom = (window.innerHeight - rect.top + 14) + 'px';
+  }
+}
+
+function renderTourOverlay(){
+  if(!S.tourActive) return '';
+  const step = TOUR_STEPS[S.tourStep];
+  if(!step) return '';
+  const isLast = S.tourStep === TOUR_STEPS.length - 1;
+  return (
+    '<div id="tour-highlight" class="tour-highlight"></div>' +
+    '<div id="tour-tooltip" class="tour-tooltip">' +
+      '<div class="tour-step-count">STEP ' + (S.tourStep+1) + ' OF ' + TOUR_STEPS.length + '</div>' +
+      '<h4>' + esc(step.title) + '</h4>' +
+      '<p>' + esc(step.text) + '</p>' +
+      '<div class="tour-actions">' +
+        '<button type="button" class="linklike" id="tour-skip" style="background:none;border:none;color:var(--ink-faint);text-decoration:underline;font-size:12px;padding:0;">Skip tour</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="tour-next">' + (isLast ? 'Got it!' : 'Next') + '</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderTutorDrawer(){
+  const d = S.tutorDrawer;
+  if(!d) return '';
+  const qPreview = d.context.question.length > 140 ? d.context.question.slice(0,140) + '\u2026' : d.context.question;
+  return (
+    '<div class="tutor-scrim" id="tutor-scrim"></div>' +
+    '<div class="tutor-drawer">' +
+      '<div class="tutor-head">' +
+        '<div><h4>Ask Tutor</h4><div class="qref">' + esc(qPreview) + '</div></div>' +
+        '<button class="tutor-close" id="tutor-close">&times;</button>' +
+      '</div>' +
+      (d.messages.length === 0 ? (
+        '<div class="tutor-quick">' +
+          '<button data-tutor-quick="Why is my answer wrong?">Why is my answer wrong?</button>' +
+          '<button data-tutor-quick="Give me an intuitive real-world analogy for this concept.">Give me an intuitive real-world analogy</button>' +
+          '<button data-tutor-quick="Give me an easier practice question on this specific concept.">Give me an easier practice question on this concept</button>' +
+        '</div>'
+      ) : '') +
+      '<div class="tutor-messages" id="tutor-messages">' +
+        d.messages.map(m => '<div class="tutor-msg ' + m.role + '">' + esc(m.text) + '</div>').join('') +
+        (d.loading ? '<div class="tutor-typing">Tutor is typing&hellip;</div>' : '') +
+      '</div>' +
+      '<div class="tutor-input-row">' +
+        '<input type="text" id="tutor-input" placeholder="Ask a follow-up..." />' +
+        '<button class="btn btn-primary btn-sm" id="tutor-send">Send</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function buildTutorContextPrefix(ctx){
+  return [
+    'You are a friendly, encouraging Socratic tutor helping a ' + (S.profile.level==='college'?'college':'high school') + ' student understand a concept they missed on a ' + ctx.source + '.',
+    levelInstruction(S.profile.level),
+    LATEX_INSTRUCTION,
+    'Respond conversationally in ' + getTargetLang() + ', in 2-5 sentences unless the student asks for more. Guide understanding rather than just restating the rubric verbatim.',
+    '',
+    'Question: ' + ctx.question,
+    ctx.rubricOrAnswer ? 'Correct answer / rubric: ' + ctx.rubricOrAnswer : '',
+    'Student\'s answer: ' + (ctx.userAnswer || '(no answer given)'),
+    '',
+    'Student says: '
+  ].filter(Boolean).join('\n');
+}
+
+function openTutorDrawer(source, idx){
+  const sess = source === 'quiz' ? S.quizSession : source === 'customtest' ? S.customTestSession : S.testSession;
+  if(!sess) return;
+  const q = sess.questions[idx];
+  const context = {
+    source,
+    question: q.question,
+    rubricOrAnswer: (source === 'test' || source === 'customtest') ? q.rubric : q.answer,
+    userAnswer: sess.answers[idx]
+  };
+  S.tutorDrawer = { context, messages: [], loading: false };
+  render();
+}
+function closeTutorDrawer(){
+  S.tutorDrawer = null;
+  render();
+}
+async function sendTutorMessage(displayText){
+  const d = S.tutorDrawer;
+  if(!d || !displayText.trim()) return;
+  d.messages.push({ role: 'user', text: displayText.trim() });
+  d.loading = true;
+  render();
+  try{
+    const apiMessages = d.messages.map((m,i) => i===0 ? { role:'user', text: buildTutorContextPrefix(d.context) + m.text } : m);
+    const reply = await callGeminiChat(apiMessages);
+    d.messages.push({ role: 'assistant', text: reply });
+  }catch(e){
+    d.messages.push({ role: 'assistant', text: 'Sorry, something went wrong: ' + e.message });
+  }finally{
+    d.loading = false;
+    render();
+    const msgBox = document.getElementById('tutor-messages');
+    if(msgBox) msgBox.scrollTop = msgBox.scrollHeight;
+  }
+}
+
+function renderModelFallbackModal(){
+  const m = S.modelFallbackModal;
+  if(!m) return '';
+  return '<div class="loading-overlay" style="background:rgba(0,0,0,0.85); z-index:100;">' +
+    '<div class="callout" style="background:var(--paper-raised); max-width:480px; width:90%; padding:24px; border:1px solid var(--rule-strong); text-align:left;">' +
+      '<h3 style="margin-bottom:12px; font-size:18px;">All models are busy right now</h3>' +
+      '<p style="margin-bottom:16px; font-size:13.5px; color:var(--ink-soft); line-height:1.5;">' +
+        'Marginalia already tried every available Gemini model, and they\'re all currently experiencing high demand or rate limits.<br><br>' +
+        'Want to try the whole list again?' +
+      '</p>' +
+      '<div style="display:flex; gap:12px; justify-content:flex-end;">' +
+        '<button type="button" class="btn btn-quiet btn-sm" id="fallback-cancel">Cancel</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="fallback-confirm">Retry</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderRoute(){
+  switch(S.route){
+    case 'dashboard': return renderDashboard();
+    case 'newset': return renderNewSet();
+    case 'set': return renderSet();
+    case 'settings': return renderSettings();
+    case 'stats': return renderStatsPage();
+    case 'examBuilder': return renderExamBuilder();
+    case 'dailyreview': return renderDailyReview();
+    case 'explore': return renderExplore();
+    default: return '';
+  }
+}
+
+const LOADING_FLAVORS = {
+  'Reading materials & generating study set...': ['Consulting the margins\u2026', 'Cross-referencing your notes\u2026', 'Distilling the essentials\u2026', 'Annotating with care\u2026'],
+  'Grading quiz answers...': ['Marking in red ink\u2026', 'Weighing your answers\u2026', 'Comparing notes\u2026'],
+  'Generating formal test...': ['Setting the examination\u2026', 'Drafting the rubric\u2026', 'Sharpening the questions\u2026'],
+  'Grading test responses...': ['Reading between the lines\u2026', 'Awarding partial credit fairly\u2026', 'Consulting the key\u2026'],
+};
+function getFlavorMsg(msg){
+  const flavors = LOADING_FLAVORS[msg];
+  if(!flavors) return msg;
+  return flavors[Math.floor(Date.now() / 1800) % flavors.length];
+}
+function renderLoadingOverlay(){
+  return '<div class="loading-overlay"><div class="loading-mark"></div><div class="loading-text">' + esc(getFlavorMsg(S.loadingMsg||'Working')) + '</div></div>';
+}
+
+function renderFooter(){
+  return '<div class="footer-note">Marginalia securely syncs your notes, quizzes, and user data across devices using Supabase.</div>';
+}
+
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function renderTopbar(){
+  return (
+    '<div class="topbar">' +
+      '<div class="wordmark">Marginalia<small>study notes, quizzes, tests</small></div>' +
+      '<div class="topnav">' +
+        '<button class="linklike" data-nav="dashboard">Study sets</button>' +
+        '<button class="linklike" data-nav="explore">Explore</button>' +
+        '<button class="linklike" data-nav="stats">Stats</button>' +
+        '<button class="linklike" data-nav="settings">Settings</button>' +
+        '<button class="btn btn-sm btn-primary" data-nav="newset">New study set</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+const HOW_STEPS = [
+  { title: 'Add your notes',     body: 'Paste text, or upload photos and PDFs of the pages you already have.' },
+  { title: 'Get a study set',    body: 'A summary, revision cards and a first quiz, ready in a few seconds.' },
+  { title: 'Practise and track', body: 'Quiz, test, review daily — and watch the weak spots close up.' }
+];
+
+// The four headline features, each with a CSS-only product mock (no image files).
+const SHOWCASE_ROWS = [
+  {
+    title: 'Notes in, study set out',
+    body: 'Paste your notes or upload photos and PDFs. You get a clean summary, revision cards, and a first quiz — subject tagged automatically.',
+    mock: mockNotes
+  },
+  {
+    title: 'A fresh quiz every time',
+    body: 'Choose the length, question types, and difficulty — or let Dynamic follow your recent scores. Graded instantly, with explanations.',
+    mock: mockQuiz
+  },
+  {
+    title: 'Tests graded on meaning',
+    body: 'Short answers and essays are marked on substance, not exact wording, with real partial credit and feedback you can argue with.',
+    mock: mockTest
+  },
+  {
+    title: 'Progress you can actually read',
+    body: 'Score trends, strongest and weakest subjects, a day streak, and an activity heatmap — filtered to the sets you care about.',
+    mock: mockStats
+  }
+];
+
+function mockChrome(label, inner){
+  return (
+    '<div class="mock" aria-hidden="true">' +
+      '<div class="mock-bar"><i class="mock-dot"></i><i class="mock-dot"></i><i class="mock-dot"></i><span>' + label + '</span></div>' +
+      inner +
+    '</div>'
+  );
+}
+
+function mockLines(specs){
+  return specs.map(w => '<div class="mock-line ' + w + '"></div>').join('');
+}
+
+function mockNotes(){
+  return mockChrome('new study set',
+    '<div class="mock-cols">' +
+      '<div class="mock-panel">' +
+        '<div class="mock-label">PASTED NOTES</div>' +
+        mockLines(['','w90','','w75','','w60','w90','w45']) +
+      '</div>' +
+      '<div class="mock-arrow">&rarr;</div>' +
+      '<div class="mock-panel">' +
+        '<div class="mock-label">SUMMARY</div>' +
+        mockLines(['ink','ink w75','w90','w60']) +
+        '<div class="mock-chips"><div class="mock-chip">CARD 1</div><div class="mock-chip">CARD 2</div><div class="mock-chip">CARD 3</div></div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function mockQuiz(){
+  return mockChrome('practice quiz &middot; 04:12',
+    '<div class="mock-q">Which data structure gives O(1) average lookup?</div>' +
+    '<div class="mock-opt">Linked list</div>' +
+    '<div class="mock-opt">Binary tree</div>' +
+    '<div class="mock-opt picked">Hash map <b>&check;</b></div>' +
+    '<div class="mock-opt">Sorted array</div>' +
+    '<div class="mock-tiers"><span class="mock-tier">EASY</span><span class="mock-tier on">MEDIUM</span><span class="mock-tier">HARD</span><span class="mock-tier">DYNAMIC</span></div>'
+  );
+}
+
+function mockTest(){
+  return mockChrome('formal test &middot; graded',
+    '<div class="mock-split">' +
+      '<div class="mock-panel" style="border:none; background:transparent; padding:0;">' +
+        '<div class="mock-label">YOUR ANSWER</div>' +
+        mockLines(['','w90','w75','w60']) +
+      '</div>' +
+      '<div class="mock-score">17/20<small>PARTIAL CREDIT</small></div>' +
+    '</div>' +
+    '<div class="mock-track"><i></i></div>' +
+    '<div class="mock-feedback">' +
+      '<div class="mock-label">EXAMINER NOTES</div>' +
+      mockLines(['w90','w75','w45']) +
+    '</div>'
+  );
+}
+
+function mockStats(){
+  var heat = '';
+  var op = [0.15,0.5,0.9,0.3,0.7,1,0.2,0.6,0.85,0.4];
+  for(var i = 0; i < 30; i++){ heat += '<i style="opacity:' + op[i % op.length] + '"></i>'; }
+  return mockChrome('stats &middot; last 30 days',
+    '<div class="mock-stats">' +
+      '<div class="mock-chart">' +
+        '<svg viewBox="0 0 200 100" preserveAspectRatio="none" role="presentation">' +
+          '<polyline fill="none" stroke="var(--oxblood)" stroke-width="2" points="0,82 25,74 50,78 75,58 100,60 125,44 150,34 175,26 200,14"></polyline>' +
+        '</svg>' +
+      '</div>' +
+      '<div><div class="mock-label">ACTIVITY</div><div class="mock-heat">' + heat + '</div></div>' +
+    '</div>' +
+    '<div class="mock-tiles">' +
+      '<div class="mock-tile"><b>12</b><span>day streak</span></div>' +
+      '<div class="mock-tile"><b>86%</b><span>avg score</span></div>' +
+      '<div class="mock-tile"><b>34</b><span>quizzes taken</span></div>' +
+    '</div>'
+  );
+}
+
+// Short cards for everything not covered by a showcase row above.
+const FEATURE_SECTIONS = [
+  { title: 'Custom Test',        body: 'Pick your own question types, then get partial-credit AI grading on the written ones.' },
+  { title: 'Comprehensive Exam', body: 'Combine 2–5 sets into one cumulative exam that samples proportionally across all of them.' },
+  { title: 'Daily Review',       body: 'Spaced repetition pulls due cards from every set on 1, 3, 7 and 14-day intervals.' },
+  { title: 'Ask Tutor',          body: 'Every missed question opens a chat with a Socratic tutor that explains rather than tells.' },
+  { title: 'Active Recall Mode', body: 'Mask key terms in your summary into blanks you click to reveal. No new quiz needed.' },
+  { title: 'Explore',            body: 'Publish a set for others to copy into their own account, or share it as view-only.' },
+  { title: 'Tags & search',      body: 'Group by subject, tag, and search once you have more than a few sets.' },
+  { title: 'Export to PDF',      body: 'Send any set to a clean, printable PDF for the night before.' },
+  { title: 'LaTeX & dark mode',  body: 'Full formula rendering for maths, chemistry and physics. Dark mode throughout.' }
+];
+
+function renderLanding(){
+  return (
+    '<header class="landing-nav">' +
+      '<div class="landing-nav-inner">' +
+        '<a class="landing-nav-mark" href="#top">Marginalia</a>' +
+        '<nav class="landing-nav-links">' +
+          '<a href="#landing-how">How it works</a>' +
+          '<a href="#landing-features">Features</a>' +
+          '<button class="btn btn-sm btn-quiet" id="landing-login-nav">Log In</button>' +
+          '<button class="btn btn-sm btn-primary" id="landing-signup-nav">Sign Up Free</button>' +
+        '</nav>' +
+      '</div>' +
+    '</header>' +
+    '<div class="landing" id="top">' +
+      '<div class="landing-hero">' +
+        '<div class="landing-rule-motif" aria-hidden="true"></div>' +
+        '<div class="landing-eyebrow stagger-in" style="animation-delay:0ms">AI STUDY COMPANION</div>' +
+        '<div class="wordmark stagger-in" style="font-size:40px; animation-delay:60ms;">Marginalia</div>' +
+        '<p class="landing-tagline stagger-in" style="animation-delay:120ms">Turn the notes you already have into notes worth studying from.</p>' +
+        '<p class="landing-sub stagger-in" style="animation-delay:180ms">Summaries, flashcards, quizzes and graded tests — from your own notes.</p>' +
+        '<div class="landing-badges stagger-in" style="animation-delay:240ms">' +
+          '<span class="landing-badge">Instant Quizzes</span>' +
+          '<span class="landing-badge">AI-Graded Tests</span>' +
+          '<span class="landing-badge">Spaced Repetition</span>' +
+          '<span class="landing-badge">Progress Tracking</span>' +
+        '</div>' +
+        '<div class="landing-cta-row stagger-in" style="animation-delay:300ms">' +
+          '<button class="btn btn-primary landing-btn-lg" id="landing-signup">Sign Up Free</button>' +
+          '<button class="btn btn-quiet landing-btn-lg" id="landing-login">Log In</button>' +
+        '</div>' +
+        '<a href="#landing-how" class="landing-scroll-hint stagger-in" style="animation-delay:360ms">See what it does<span class="landing-scroll-arrow">&darr;</span></a>' +
+      '</div>' +
+
+      '<div class="landing-how" id="landing-how">' +
+        '<h2 class="landing-section-title">How it works</h2>' +
+        '<div class="how-grid">' +
+          HOW_STEPS.map((s, i) => (
+            '<div class="how-step stagger-in" style="animation-delay:' + (i*60) + 'ms">' +
+              '<div class="how-step-num">' + (i+1) + '</div>' +
+              '<h3>' + esc(s.title) + '</h3>' +
+              '<p>' + esc(s.body) + '</p>' +
+            '</div>'
+          )).join('') +
+        '</div>' +
+      '</div>' +
+
+      '<div class="landing-showcase">' +
+        SHOWCASE_ROWS.map((r, i) => (
+          '<div class="showcase-row' + (i % 2 ? ' flipped' : '') + '">' +
+            '<div class="showcase-copy">' +
+              '<div class="showcase-num">' + String(i+1).padStart(2,'0') + '</div>' +
+              '<h3>' + esc(r.title) + '</h3>' +
+              '<p>' + esc(r.body) + '</p>' +
+            '</div>' +
+            '<div class="showcase-media">' + r.mock() + '</div>' +
+          '</div>'
+        )).join('') +
+      '</div>' +
+
+      '<div class="landing-features" id="landing-features">' +
+        '<h2 class="landing-section-title">Everything else it does</h2>' +
+        '<div class="feature-grid">' +
+          FEATURE_SECTIONS.map((f, i) => (
+            '<div class="feature-card stagger-in" style="animation-delay:' + (i*50) + 'ms">' +
+              '<div class="feature-num">' + String(i+5).padStart(2,'0') + '</div>' +
+              '<h3>' + esc(f.title) + '</h3>' +
+              '<p>' + esc(f.body) + '</p>' +
+            '</div>'
+          )).join('') +
+        '</div>' +
+      '</div>' +
+
+      '<div class="landing-close">' +
+        '<p class="landing-close-quote">&ldquo;I stopped rewriting my notes and started being tested on them.&rdquo;</p>' +
+        '<div class="landing-close-stats">' +
+          '<span><strong>4 minutes</strong> from notes to first quiz</span>' +
+          '<span><strong>14 days</strong> of spaced review built in</span>' +
+          '<span><strong>Free</strong> to start, no card needed</span>' +
+        '</div>' +
+        '<button class="btn btn-primary landing-btn-lg" id="landing-signup-bottom">Sign Up Free</button>' +
+      '</div>' +
+      renderFooter() +
+    '</div>'
+  );
+}
+
+function renderOnboarding(){
+  if(S.authMode === 'forgot') return renderForgotPassword();
+  const isLogin = S.authMode === 'login';
+  const draft = S._onboardDraft || { name: '', password: '', level: 'college' };
+  S._onboardDraft = draft;
+
+  return (
+    '<div class="app app-narrow onboard-wrap">' +
+      '<div class="wordmark">Marginalia</div>' +
+      '<p class="onboard-sub">' + (isLogin ? 'Log in to your Supabase-synced account to access your study sets.' : 'Create your account and connect to Supabase to sync your notes across devices.') + '</p>' +
+
+      '<div class="field">' +
+        '<label class="field-label">' + (isLogin ? 'Username or Email' : 'Username') + '</label>' +
+        '<input type="text" id="auth-name" value="' + esc(draft.name) + '" placeholder="e.g. Ardit" />' +
+        (isLogin ? '<div class="field-hint">If you signed up with a real email, log in with that email. Otherwise use your username.</div>' : '') +
+      '</div>' +
+
+      (!isLogin ? (
+        '<div class="field">' +
+          '<label class="field-label">Email <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+          '<input type="text" id="auth-email-optional" value="' + esc(draft.email||'') + '" placeholder="you@example.com" />' +
+          '<div class="field-hint">Leave blank and we\'ll generate an internal address from your username. Add a real email if you want password recovery or to log in with it directly.</div>' +
+        '</div>'
+      ) : '') +
+
+      '<div class="field">' +
+        '<label class="field-label">Password</label>' +
+        '<input type="password" id="auth-password" value="' + esc(draft.password) + '" placeholder="••••••••" />' +
+        (isLogin ? '<div style="margin-top:6px;"><button type="button" class="linklike" id="auth-forgot-link" style="background:none; border:none; color:var(--navy); text-decoration:underline; font-size:12.5px; padding:0;">Forgot password?</button></div>' : '') +
+      '</div>' +
+
+      (!isLogin ? (
+        '<div class="field">' +
+          '<label class="field-label">You are studying at</label>' +
+          '<div class="choice-row">' +
+            '<button class="choice-pill ' + (draft.level==='highschool'?'selected':'') + '" data-ob-level="highschool">High school</button>' +
+            '<button class="choice-pill ' + (draft.level==='college'?'selected':'') + '" data-ob-level="college">College</button>' +
+          '</div>' +
+        '</div>'
+      ) : '') +
+
+      (!isLogin ? '<div class="field-hint" style="margin-bottom:var(--sp-4);">After signing up, add your free Gemini API key in Settings to start generating study sets.</div>' : '') +
+
+      (S._authError ? '<div class="callout error" style="margin-bottom:15px;">' + esc(S._authError) + '</div>' : '') +
+
+      '<div style="display:flex; gap:12px; align-items:center; margin-top:20px;">' +
+        '<button class="btn btn-primary" id="auth-submit">' + (isLogin ? 'Log In' : 'Create Account') + '</button>' +
+        '<button type="button" class="linklike" id="auth-toggle-mode" style="background:none; border:none; color:var(--navy); text-decoration:underline; font-size:13px;">' +
+          (isLogin ? 'Need an account? Sign up' : 'Already have an account? Log in') +
+        '</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderForgotPassword(){
+  const sent = S._forgotSent;
+  return (
+    '<div class="app app-narrow onboard-wrap">' +
+      '<div class="wordmark">Marginalia</div>' +
+      '<p class="onboard-sub">Enter the real email address on your account and we\'ll send you a reset link.</p>' +
+      (sent ? (
+        '<div class="callout" style="margin-bottom:15px;">If that email is on an account, a reset link is on its way. Check your inbox (and spam folder).</div>'
+      ) : (
+        '<div class="field">' +
+          '<label class="field-label">Email</label>' +
+          '<input type="text" id="forgot-email" placeholder="you@example.com" />' +
+          '<div class="field-hint">This only works for accounts that were signed up with a real email address, not a generated username@marginalia.app one.</div>' +
+        '</div>'
+      )) +
+      (S._authError ? '<div class="callout error" style="margin-bottom:15px;">' + esc(S._authError) + '</div>' : '') +
+      '<div style="display:flex; gap:12px; align-items:center; margin-top:20px;">' +
+        (!sent ? '<button class="btn btn-primary" id="forgot-submit">Send reset link</button>' : '') +
+        '<button type="button" class="linklike" id="forgot-back" style="background:none; border:none; color:var(--navy); text-decoration:underline; font-size:13px;">Back to log in</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderSettings(){
+  const gs = S.profile.gradeScale || defaultGradeScale();
+  const isCustom = gs.mode === 'custom';
+  const lang = S.profile.language || 'english';
+  return (
+    '<h2 style="margin-bottom:var(--sp-5)">Settings</h2>' +
+    '<div class="field">' +
+      '<label class="field-label">Name</label>' +
+      '<input type="text" id="set-name" value="' + esc(S.profile.name) + '" />' +
+    '</div>' +
+    '<div class="field">' +
+      '<label class="field-label">Appearance</label>' +
+      '<div class="choice-row">' +
+        '<button class="choice-pill ' + (!S.darkMode?'selected':'') + '" id="btn-dark-mode-off">Light</button>' +
+        '<button class="choice-pill ' + (S.darkMode?'selected':'') + '" id="btn-dark-mode-on">Dark</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="field">' +
+      '<label class="field-label">Daily Review Reminders</label>' +
+      '<div class="choice-row">' +
+        '<button class="choice-pill ' + (!S.reviewNotifsEnabled?'selected':'') + '" id="btn-notifs-off">Off</button>' +
+        '<button class="choice-pill ' + (S.reviewNotifsEnabled?'selected':'') + '" id="btn-notifs-on">On</button>' +
+      '</div>' +
+      '<div class="field-hint">' +
+        (typeof Notification === 'undefined'
+          ? 'Notifications aren\'t supported in this browser.'
+          : (Notification.permission === 'denied'
+              ? 'Notifications are blocked for this site in your browser settings — enable them there first.'
+              : 'Shows a browser notification with your due card count while this app is open in a tab (not a true push — it won\'t fire if the app or browser is fully closed).')) +
+      '</div>' +
+      (S.reviewNotifsEnabled ? '<button type="button" class="btn btn-quiet btn-sm" id="btn-test-notif" style="margin-top:var(--sp-3);">Send test notification</button>' : '') +
+    '</div>' +
+    '<div class="field">' +
+      '<label class="field-label">Studying at</label>' +
+      '<div class="choice-row">' +
+        '<button class="choice-pill ' + (S.profile.level==='highschool'?'selected':'') + '" data-set-level="highschool">High school</button>' +
+        '<button class="choice-pill ' + (S.profile.level==='college'?'selected':'') + '" data-set-level="college">College</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="field">' +
+      '<label class="field-label">Study Content Language</label>' +
+      '<select id="set-language">' +
+        '<option value="english" ' + (lang === 'english' ? 'selected' : '') + '>English</option>' +
+        '<option value="albanian" ' + (lang === 'albanian' ? 'selected' : '') + '>Albanian (Shqip)</option>' +
+        '<option value="other" ' + (lang !== 'english' && lang !== 'albanian' ? 'selected' : '') + '>Other (type below)</option>' +
+      '</select>' +
+      '<input type="text" id="set-language-other" value="' + esc(lang !== 'english' && lang !== 'albanian' ? lang : '') + '" placeholder="e.g. Spanish, French, German..." style="margin-top:8px; display:' + (lang !== 'english' && lang !== 'albanian' ? 'block' : 'none') + ';" />' +
+      '<div class="field-hint">Generates AI study notes, sticky notes, quizzes, and tests in this language.</div>' +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field">' +
+      '<label class="field-label">Google AI Studio API key</label>' +
+      '<div style="margin-bottom:8px;">' +
+        '<div style="font-size:12px; color:var(--ink-soft); margin-bottom:4px;">Quick-select API Key:</div>' +
+        '<div style="display:flex; gap:6px; flex-wrap:wrap;">' +
+          PRESET_API_KEYS.map((k, idx) => '<button type="button" class="btn btn-quiet btn-sm preset-key-btn-settings" data-key="' + esc(k) + '">Key ' + (idx+1) + '</button>').join('') +
+        '</div>' +
+      '</div>' +
+      '<input type="password" id="set-apikey" value="' + esc(S.apiKey) + '" placeholder="AIza..." />' +
+      '<div class="field-hint">Auto-saved as you type. Get a key at aistudio.google.com.</div>' +
+    '</div>' +
+    '<div class="field">' +
+      '<label class="field-label">Model</label>' +
+      renderModelSelect() +
+      '<div class="field-hint">Select one of the supported models above.</div>' +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field">' +
+      '<label class="field-label">Grading scale</label>' +
+      '<div class="choice-row" style="margin-bottom:var(--sp-4)">' +
+        '<button class="choice-pill ' + (gs.preset==='standard'&&!isCustom?'selected':'') + '" data-scale-preset="standard">Standard (90/80/70/60)</button>' +
+        '<button class="choice-pill ' + (gs.preset==='plusminus'&&!isCustom?'selected':'') + '" data-scale-preset="plusminus">Plus / minus</button>' +
+        '<button class="choice-pill ' + (gs.preset==='passfail'&&!isCustom?'selected':'') + '" data-scale-preset="passfail">Pass / fail</button>' +
+        '<button class="choice-pill ' + (isCustom?'selected':'') + '" data-scale-preset="custom">Custom</button>' +
+      '</div>' +
+      (isCustom ? renderCustomScaleEditor(gs.custom) : '') +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field">' +
+      '<label class="field-label">Data Backup</label>' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="btn-export-json">Export Data to JSON Backup</button>' +
+      '<div class="field-hint">Downloads all your study sets and profile as a JSON backup file to your computer.</div>' +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field">' +
+      '<label class="field-label">Change Password</label>' +
+      '<input type="password" id="change-pw-new" placeholder="New password" style="margin-bottom:8px;" />' +
+      '<input type="password" id="change-pw-confirm" placeholder="Confirm new password" />' +
+      (S._pwChangeError ? '<div class="callout error" style="margin-top:8px;">' + esc(S._pwChangeError) + '</div>' : '') +
+      (S._pwChangeSuccess ? '<div class="callout success" style="margin-top:8px;">Password updated.</div>' : '') +
+      '<button type="button" class="btn btn-quiet btn-sm" id="btn-change-password" style="margin-top:8px;">Update Password</button>' +
+      '<div class="field-hint">At least 6 characters. You\'re already logged in, so no need to enter your current password.</div>' +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field">' +
+      '<label class="field-label">Account</label>' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="btn-replay-tour" style="margin-right:8px;">Replay Tutorial</button>' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="btn-logout">Log out</button>' +
+    '</div>' +
+    '<hr class="divider" />' +
+    '<div class="field danger-zone">' +
+      '<label class="field-label" style="color:var(--oxblood);">Danger Zone</label>' +
+      (!S.deleteAccountOpen ? (
+        '<button type="button" class="btn btn-quiet btn-sm danger-btn" id="btn-open-delete">Delete Account</button>' +
+        '<div class="field-hint">Permanently deletes all your study sets, sticky notes, quizzes, history, and anything you\'ve published to Explore.</div>'
+      ) : (
+        '<div class="callout error">' +
+          '<p style="margin:0 0 10px; font-weight:600;">This cannot be undone.</p>' +
+          '<p style="margin:0 0 10px;">This deletes all your study sets, sticky notes, quizzes, test history, and any study sets you\'ve published to Explore. Type <strong>DELETE</strong> below to confirm.</p>' +
+          '<input type="text" id="delete-confirm-input" placeholder="Type DELETE" style="margin-bottom:10px;" />' +
+          (S._deleteError ? '<div style="margin-bottom:10px; color:var(--oxblood-dark);">' + esc(S._deleteError) + '</div>' : '') +
+          '<button type="button" class="btn danger-btn" id="btn-confirm-delete">Permanently Delete My Account</button> ' +
+          '<button type="button" class="btn btn-quiet btn-sm" id="btn-cancel-delete">Cancel</button>' +
+        '</div>'
+      )) +
+    '</div>' +
+    '<div style="display:flex; gap:var(--sp-3); margin-top:var(--sp-6)">' +
+      '<button class="btn btn-primary" id="settings-save">Save settings</button>' +
+      '<button class="btn btn-quiet" data-nav="dashboard">Back</button>' +
+    '</div>'
+  );
+}
+
+function renderModelSelect(){
+  const list = FALLBACK_MODELS;
+  return (
+    '<select id="set-model">' +
+      list.map(m => '<option value="' + esc(m.id) + '" ' + (S.model === m.id ? 'selected' : '') + '>' + esc(m.label) + '</option>').join('') +
+    '</select>'
+  );
+}
+
+function renderCustomScaleEditor(custom) {
+  const rows = (custom || []).map((row, i) => `
+    <tr>
+      <td><input type="text" style="width:70px" class="scale-label-in" data-idx="${i}" value="${esc(row.label)}" /></td>
+      <td><input type="number" style="width:90px" class="scale-min-in" data-idx="${i}" value="${row.min}" min="0" max="100" /></td>
+      <td><button type="button" class="btn btn-quiet btn-sm scale-del" data-idx="${i}">Delete</button></td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="callout" style="display:flex; flex-direction:column; gap:8px;">
+      <div style="font-weight:600; margin-bottom:4px;">Custom Grade Scale Thresholds (Minimum % for each letter)</div>
+      <table class="grade-table">
+        <thead><tr><th>Letter</th><th>Min %</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <button type="button" class="btn btn-quiet btn-sm" id="scale-add-row" style="align-self:flex-start; margin-top:6px;">Add threshold</button>
+    </div>
+  `;
+}
+
+function renderSetRow(s){
+  const diff = difficultyDisplay(s);
+  const isEditingTags = S.editingTagsSetId === s.id;
+  return (
+    '<div class="ledger-row clickable" data-open-set="' + s.id + '">' +
+      '<div style="flex:1; min-width:0;">' +
+        '<div class="ledger-title">' + esc(s.title) + (diff ? ' <span class="diff-badge ' + diff.cls + '">' + diff.label + '</span>' : '') + '</div>' +
+        '<div class="ledger-meta">' +
+          '<span>Updated <span class="num">' + new Date(s.updatedAt||Date.now()).toLocaleDateString() + '</span></span>' +
+          '<span><span class="num">' + (s.stickyNotes?.length||0) + '</span> sticky notes</span>' +
+          '<span><span class="num">' + (s.quiz?.length||0) + '</span> quiz Qs</span>' +
+          (s.history?.length ? '<span><span class="num">' + s.history.length + '</span> tests/quizzes taken</span>' : '') +
+        '</div>' +
+        (s.clonedFromTitle ? '<div class="cloned-from-tag">Copied from &ldquo;' + esc(s.clonedFromTitle) + '&rdquo; by ' + esc(s.clonedFromAuthor||'someone') + '</div>' : '') +
+        ((s.tags && s.tags.length) ? '<div class="ledger-tags">' + s.tags.map(t => '<span class="tag-pill">' + esc(t) + '</span>').join('') + '</div>' : '') +
+        (isEditingTags ? (
+          '<div class="tag-edit-row" data-stop-nav="1">' +
+            '<input type="text" id="tag-edit-input-' + s.id + '" value="' + esc((s.tags||[]).join(', ')) + '" placeholder="e.g. midterm, unit 3, review" />' +
+            '<button class="btn btn-quiet btn-sm" data-save-tags="' + s.id + '">Save</button>' +
+          '</div>'
+        ) : (
+          '<button class="tag-edit-btn" data-edit-tags="' + s.id + '">' + ((s.tags && s.tags.length) ? 'Edit tags' : '+ Add tags') + '</button>'
+        )) +
+      '</div>' +
+      '<button class="btn btn-quiet btn-sm" data-delete-set="' + s.id + '" title="Delete set">Delete</button>' +
+    '</div>'
+  );
+}
+
+function renderDashboard(){
+  const allSets = S.studySets;
+  const allHistory = allSets.flatMap(s => (s.history||[]).map(h => ({ timestamp: h.timestamp })));
+  const dueCards = computeDueCards(allSets);
+
+  const allTags = Array.from(new Set(allSets.flatMap(s => s.tags || []))).sort();
+  const search = (S.dashboardSearch || '').trim().toLowerCase();
+  const activeTags = S.dashboardActiveTags || [];
+
+  const filteredSets = allSets.filter(s => {
+    if(activeTags.length && !activeTags.some(t => (s.tags||[]).includes(t))) return false;
+    if(!search) return true;
+    const hay = (s.title + ' ' + (s.category||'') + ' ' + (s.tags||[]).join(' ')).toLowerCase();
+    return hay.includes(search);
+  });
+
+  let listHtml;
+  if(allSets.length === 0){
+    listHtml = '<div class="ledger">' +
+      '<div class="ledger-empty">No study sets yet. Click <strong>New study set</strong> above to create one from your notes or files.</div>' +
+    '</div>';
+  } else if(filteredSets.length === 0){
+    listHtml = '<div class="ledger"><div class="ledger-empty">No study sets match your search or tag filters.</div></div>';
+  } else if(S.dashboardGroupBy === 'category'){
+    const groups = {};
+    filteredSets.forEach(s => { const cat = s.category || 'General'; (groups[cat] = groups[cat] || []).push(s); });
+    listHtml = Object.keys(groups).sort().map(cat => (
+      '<div class="set-group">' +
+        '<div class="set-group-heading">' + esc(cat) + ' (' + groups[cat].length + ')</div>' +
+        '<div class="ledger">' + groups[cat].map(renderSetRow).join('') + '</div>' +
+      '</div>'
+    )).join('');
+  } else {
+    listHtml = '<div class="ledger">' + filteredSets.map(renderSetRow).join('') + '</div>';
+  }
+
+  return (
+    (S.recentCloneInfo ? (
+      '<div class="callout success clone-banner">' +
+        '<span>Added &ldquo;' + esc(S.recentCloneInfo.title) + '&rdquo; to your study sets &mdash; copied from ' + esc(S.recentCloneInfo.author) + '.</span>' +
+        '<button type="button" class="linklike" id="dismiss-clone-banner" style="background:none;border:none;color:inherit;text-decoration:underline;font-size:12px;padding:0;">Dismiss</button>' +
+      '</div>'
+    ) : '') +
+    (allHistory.length ? renderStreakBar(allHistory) : '') +
+    (allSets.length ? (
+      '<div class="dash-actions">' +
+        '<button class="btn btn-primary" data-nav="dailyreview">Daily Review' + (dueCards.length ? ' <span class="due-badge">' + dueCards.length + '</span>' : '') + '</button>' +
+        '<button class="btn btn-quiet" data-nav="examBuilder">Build Comprehensive Exam</button>' +
+      '</div>'
+    ) : '') +
+    '<div class="section-heading">' +
+      '<h2>Study Sets</h2>' +
+      '<span class="muted" style="font-size:13px">' + filteredSets.length + ' of ' + allSets.length + ' set' + (allSets.length===1?'':'s') + '</span>' +
+    '</div>' +
+    (allSets.length > 1 ? (
+      '<div class="dash-organize">' +
+        '<input type="text" class="dash-search-input" id="dash-search" placeholder="Search by title, subject, or tag..." value="' + esc(S.dashboardSearch||'') + '" />' +
+        (allTags.length ? (
+          '<div class="tag-filter-row">' +
+            allTags.map(t => '<button class="tag-chip ' + (activeTags.includes(t)?'selected':'') + '" data-tag-filter="' + esc(t) + '">' + esc(t) + '</button>').join('') +
+            (activeTags.length ? '<button class="tag-chip-clear" id="dash-clear-tags">Clear filters</button>' : '') +
+          '</div>'
+        ) : '') +
+        '<div class="choice-row">' +
+          '<button class="choice-pill ' + (S.dashboardGroupBy!=='category'?'selected':'') + '" data-group-by="none">Flat list</button>' +
+          '<button class="choice-pill ' + (S.dashboardGroupBy==='category'?'selected':'') + '" data-group-by="category">Group by subject</button>' +
+        '</div>' +
+      '</div>'
+    ) : '') +
+    listHtml
+  );
+}
+
+// ═══════════════════════ STATS PAGE ═══════════════════════
+
+function computeStatsData(){
+  const allIds = S.statsSelectedSetIds || S.studySets.map(s=>s.id);
+  const selectedSets = S.studySets.filter(s => allIds.includes(s.id));
+  const entries = [];
+  selectedSets.forEach(set => {
+    (set.history || []).forEach(h => {
+      entries.push({
+        setId: set.id,
+        setTitle: set.title,
+        category: set.category || 'General',
+        type: h.type,
+        pct: h.pct,
+        letter: h.letter,
+        scoreText: h.scoreText,
+        timestamp: h.timestamp
+      });
+    });
+  });
+  entries.sort((a,b) => a.timestamp - b.timestamp);
+  return { selectedSets, entries };
+}
+
+function renderStatsPage(){
+  if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
+  const { selectedSets, entries } = computeStatsData();
+
+  const selectorHtml = (
+    '<div class="stats-select-panel">' +
+      '<div class="stats-select-head">' +
+        '<h4>Choose which study sets to include</h4>' +
+        '<div class="stats-select-actions">' +
+          '<button type="button" id="stats-select-all">Select all</button>' +
+          '<button type="button" id="stats-select-none">Clear</button>' +
+        '</div>' +
+      '</div>' +
+      (S.studySets.length === 0 ?
+        '<div class="muted" style="font-size:13px;">No study sets yet.</div>' :
+        '<div class="stats-set-list">' +
+          S.studySets.map(s => {
+            const isSel = S.statsSelectedSetIds.includes(s.id);
+            return (
+              '<div class="stats-set-chip ' + (isSel?'selected':'') + '" data-stats-toggle="' + s.id + '">' +
+                '<input type="checkbox" ' + (isSel?'checked':'') + ' style="pointer-events:none;" />' +
+                '<span>' + esc(s.title) + '</span>' +
+                '<span class="chip-cat">' + esc(s.category || 'General') + '</span>' +
+              '</div>'
+            );
+          }).join('') +
+        '</div>'
+      ) +
+    '</div>'
+  );
+
+  if(entries.length === 0){
+    return (
+      '<div class="section-heading"><h2>Stats</h2></div>' +
+      selectorHtml +
+      '<div class="stats-empty">No quiz or test attempts yet for the selected study sets. Take a practice quiz or formal test to start building stats.</div>'
+    );
+  }
+
+  const totalAttempts = entries.length;
+  const overallAvg = Math.round(entries.reduce((a,e)=>a+e.pct,0) / totalAttempts);
+  const quizEntries = entries.filter(e=>e.type==='quiz');
+  const testEntries = entries.filter(e=>e.type==='test' || e.type==='comprehensive' || e.type==='customtest');
+  const quizAvg = quizEntries.length ? Math.round(quizEntries.reduce((a,e)=>a+e.pct,0)/quizEntries.length) : null;
+  const testAvg = testEntries.length ? Math.round(testEntries.reduce((a,e)=>a+e.pct,0)/testEntries.length) : null;
+
+  // Category averages
+  const catMap = {};
+  entries.forEach(e => {
+    if(!catMap[e.category]) catMap[e.category] = { sum:0, count:0 };
+    catMap[e.category].sum += e.pct;
+    catMap[e.category].count++;
+  });
+  const catStats = Object.entries(catMap).map(([cat,v]) => ({ cat, avg: Math.round(v.sum/v.count), count: v.count })).sort((a,b)=>b.avg-a.avg);
+  const bestCat = catStats[0];
+  const worstCat = catStats[catStats.length-1];
+
+  return (
+    '<div class="section-heading"><h2>Stats</h2></div>' +
+    selectorHtml +
+    renderStreakBar(entries.map(e => ({ timestamp: e.timestamp }))) +
+    '<div class="stats-cards">' +
+      '<div class="stats-card"><span class="num">' + totalAttempts + '</span><span class="lbl">TOTAL ATTEMPTS</span></div>' +
+      '<div class="stats-card"><span class="num">' + overallAvg + '%</span><span class="lbl">OVERALL AVERAGE</span></div>' +
+      '<div class="stats-card"><span class="num">' + quizEntries.length + '</span><span class="lbl">QUIZZES TAKEN</span></div>' +
+      '<div class="stats-card"><span class="num">' + testEntries.length + '</span><span class="lbl">TESTS TAKEN</span></div>' +
+      (bestCat ? '<div class="stats-card"><span class="num" style="font-size:16px; color:var(--green);">' + esc(bestCat.cat) + '</span><span class="lbl">STRONGEST SUBJECT (' + bestCat.avg + '%)</span></div>' : '') +
+      (worstCat && worstCat !== bestCat ? '<div class="stats-card"><span class="num" style="font-size:16px; color:var(--oxblood);">' + esc(worstCat.cat) + '</span><span class="lbl">WEAKEST SUBJECT (' + worstCat.avg + '%)</span></div>' : '') +
+    '</div>' +
+
+    '<div class="stats-chart-block">' +
+      '<h4>Score Trend Over Time</h4>' +
+      '<div class="stats-chart-wrap"><canvas id="stats-trend-chart"></canvas></div>' +
+    '</div>' +
+
+    '<div class="stats-chart-block">' +
+      '<h4>Average Score by Subject</h4>' +
+      '<div class="stats-chart-wrap"><canvas id="stats-subject-chart"></canvas></div>' +
+    '</div>' +
+
+    '<div class="stats-chart-block">' +
+      '<h4>Average Score by Study Set</h4>' +
+      '<div class="stats-chart-wrap"><canvas id="stats-set-chart"></canvas></div>' +
+    '</div>' +
+
+    (quizEntries.length && testEntries.length ? (
+      '<div class="stats-chart-block">' +
+        '<h4>Quizzes vs. Formal Tests</h4>' +
+        '<div class="stats-chart-wrap" style="height:200px;"><canvas id="stats-type-chart"></canvas></div>' +
+      '</div>'
+    ) : '') +
+
+    '<div class="stats-chart-block">' +
+      '<h4>All Attempts</h4>' +
+      '<div class="ledger">' +
+        entries.slice().reverse().slice(0, 100).map(e => (
+          '<div class="ledger-row">' +
+            '<div>' +
+              '<div><span class="hist-type">' + e.type.toUpperCase() + '</span> ' + esc(e.setTitle) + ' <span class="chip-cat" style="border:none; padding-left:0;">' + esc(e.category) + '</span></div>' +
+              '<div class="ledger-meta"><span>' + new Date(e.timestamp).toLocaleString() + '</span><span>Grade: <strong>' + esc(e.letter) + '</strong></span></div>' +
+            '</div>' +
+            '<div class="hist-score"><span class="num">' + e.scoreText + '</span> (' + e.pct + '%)</div>' +
+          '</div>'
+        )).join('') +
+      '</div>' +
+    '</div>'
+  );
+}
+
+const statsCharts = { trend: null, subject: null, set: null, type: null };
+function destroyStatsCharts(){
+  Object.keys(statsCharts).forEach(k => { if(statsCharts[k]){ statsCharts[k].destroy(); statsCharts[k] = null; } });
+}
+
+function initStatsCharts(){
+  destroyStatsCharts();
+  const { entries } = computeStatsData();
+  if(!entries.length) return;
+  const c = getChartColors();
+
+  const trendCanvas = document.getElementById('stats-trend-chart');
+  if(trendCanvas){
+    statsCharts.trend = new Chart(trendCanvas, {
+      type: 'line',
+      data: {
+        labels: entries.map((e,i) => '#' + (i+1) + ' ' + e.type.slice(0,1).toUpperCase()),
+        datasets: [{
+          label: 'Score %',
+          data: entries.map(e=>e.pct),
+          borderColor: c.oxblood,
+          backgroundColor: c.oxbloodBg,
+          fill: true,
+          tension: 0.25,
+          pointRadius: 3
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          y: { min:0, max:100, ticks:{ stepSize:20, color:c.text }, grid:{ color:c.grid } },
+          x: { ticks:{ color:c.text }, grid:{ color:c.grid } }
+        },
+        plugins: { legend: { labels: { color: c.text } } }
+      }
+    });
+  }
+
+  const catMap = {};
+  entries.forEach(e => { if(!catMap[e.category]) catMap[e.category] = { sum:0, count:0 }; catMap[e.category].sum += e.pct; catMap[e.category].count++; });
+  const catEntries = Object.entries(catMap).map(([cat,v]) => ({ cat, avg: Math.round(v.sum/v.count) }));
+  const subjectCanvas = document.getElementById('stats-subject-chart');
+  if(subjectCanvas){
+    statsCharts.subject = new Chart(subjectCanvas, {
+      type: 'bar',
+      data: {
+        labels: catEntries.map(e=>e.cat),
+        datasets: [{ label: 'Avg %', data: catEntries.map(e=>e.avg), backgroundColor: c.palette }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          y: { min:0, max:100, ticks:{ stepSize:20, color:c.text }, grid:{ color:c.grid } },
+          x: { ticks:{ color:c.text }, grid:{ display:false } }
+        },
+        plugins: { legend: { display:false } }
+      }
+    });
+  }
+
+  const setMap = {};
+  entries.forEach(e => { if(!setMap[e.setTitle]) setMap[e.setTitle] = { sum:0, count:0 }; setMap[e.setTitle].sum += e.pct; setMap[e.setTitle].count++; });
+  const setEntries = Object.entries(setMap).map(([title,v]) => ({ title, avg: Math.round(v.sum/v.count) }));
+  const setCanvas = document.getElementById('stats-set-chart');
+  if(setCanvas){
+    statsCharts.set = new Chart(setCanvas, {
+      type: 'bar',
+      data: {
+        labels: setEntries.map(e=>e.title),
+        datasets: [{ label: 'Avg %', data: setEntries.map(e=>e.avg), backgroundColor: c.navy }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { min:0, max:100, ticks:{ stepSize:20, color:c.text }, grid:{ color:c.grid } },
+          y: { ticks:{ color:c.text }, grid:{ display:false } }
+        },
+        plugins: { legend: { display:false } }
+      }
+    });
+  }
+
+  const quizEntries = entries.filter(e=>e.type==='quiz');
+  const testEntries = entries.filter(e=>e.type==='test' || e.type==='comprehensive' || e.type==='customtest');
+  const typeCanvas = document.getElementById('stats-type-chart');
+  if(typeCanvas && quizEntries.length && testEntries.length){
+    const quizAvg = Math.round(quizEntries.reduce((a,e)=>a+e.pct,0)/quizEntries.length);
+    const testAvg = Math.round(testEntries.reduce((a,e)=>a+e.pct,0)/testEntries.length);
+    statsCharts.type = new Chart(typeCanvas, {
+      type: 'bar',
+      data: {
+        labels: ['Practice Quizzes', 'Formal Tests'],
+        datasets: [
+          { label: 'Average %', data: [quizAvg, testAvg], backgroundColor: [c.green, c.amber] },
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { min:0, max:100, ticks:{ stepSize:20, color:c.text }, grid:{ color:c.grid } },
+          y: { ticks:{ color:c.text }, grid:{ display:false } }
+        },
+        plugins: { legend: { display:false } }
+      }
+    });
+  }
+}
+
+// ═══════════════════════ COMPREHENSIVE EXAM BUILDER ═══════════════════════
+
+function renderExamBuilder(){
+  const sess = S.comprehensiveSession;
+
+  if(sess && sess.submitted){
+    const pct = Math.round((sess.pointsEarned / sess.totalPoints) * 100);
+    const letter = letterFor(pct);
+    return (
+      '<div class="section-heading"><h2>Comprehensive Exam</h2></div>' +
+      '<div class="score-block">' +
+        '<div class="score-num">' + sess.pointsEarned.toFixed(1) + ' / ' + sess.totalPoints + ' pts</div>' +
+        '<div class="score-label">EXAM SCORE &nbsp;&bull;&nbsp; ' + pct + '%</div>' +
+        '<div class="score-letter">Grade: ' + letter + '</div>' +
+      '</div>' +
+      '<div style="margin-bottom:var(--sp-5);"><button class="btn btn-primary" id="exam-new">Build another exam</button></div>' +
+      renderTestQuestionsReview(sess)
+    );
+  }
+
+  if(sess){
+    return (
+      '<div class="section-heading"><h2>Comprehensive Exam</h2></div>' +
+      '<div class="quiz-progress">' +
+        '<div class="quiz-progress-label"><span>Cumulative Exam &bull; ' + esc(sess.sourceTitles.join(', ')) + '</span>' +
+          (sess.timerTotalSeconds ? '<span id="timer-display" class="timer-pin">' + formatTimer(sess.timerRemaining) + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+      sess.questions.map((q, i) => (
+        '<div class="qcard">' +
+          '<div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + q.points + ' PTS' + (q.sourceTitle ? ' &bull; ' + esc(q.sourceTitle) : '') + '</div>' +
+          '<div class="qtext">' + esc(q.question) + '</div>' +
+          '<textarea class="exam-text-in" data-eidx="' + i + '" placeholder="Write your response...">' + esc(sess.answers[i]||'') + '</textarea>' +
+        '</div>'
+      )).join('') +
+      '<div style="margin-top:var(--sp-6);"><button class="btn btn-primary" id="submit-exam">Submit exam for grading</button></div>'
+    );
+  }
+
+  const sets = S.studySets;
+  if(!S.examBuilderSelectedIds) S.examBuilderSelectedIds = [];
+  const ts = S.examBuilderSettings || { count: 20, leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none' };
+  const rec = recommendTimerMinutes(ts.count || 20);
+  return (
+    '<div class="section-heading"><h2>Comprehensive Exam</h2></div>' +
+    '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Pick 2&ndash;5 study sets to build one cumulative exam sampling across all of them &mdash; ideal for midterms and finals.</p>' +
+    '<div class="stats-select-panel">' +
+      '<div class="stats-select-head"><h4>Choose study sets (2&ndash;5)</h4></div>' +
+      (sets.length < 2 ? '<div class="muted" style="font-size:13px;">You need at least 2 study sets to build a comprehensive exam.</div>' :
+        '<div class="stats-set-list">' +
+          sets.map(s => {
+            const isSel = S.examBuilderSelectedIds.includes(s.id);
+            return (
+              '<div class="stats-set-chip ' + (isSel?'selected':'') + '" data-exam-toggle="' + s.id + '">' +
+                '<input type="checkbox" ' + (isSel?'checked':'') + ' style="pointer-events:none;" />' +
+                '<span>' + esc(s.title) + '</span>' +
+                '<span class="chip-cat">' + esc(s.category || 'General') + '</span>' +
+              '</div>'
+            );
+          }).join('') +
+        '</div>'
+      ) +
+    '</div>' +
+    (sets.length >= 2 ? (
+      '<div class="setup-panel">' +
+        '<div class="setup-grid">' +
+          '<div class="field">' +
+            '<label class="field-label">Total question count</label>' +
+            '<select id="exam-count">' +
+              TEST_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((ts.count||20)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
+            '</select>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Grading leniency</label>' +
+            '<select id="exam-leniency">' +
+              '<option value="strict" ' + (ts.leniency==='strict'?'selected':'') + '>Strict</option>' +
+              '<option value="standard" ' + ((ts.leniency||'standard')==='standard'?'selected':'') + '>Standard</option>' +
+              '<option value="lenient" ' + (ts.leniency==='lenient'?'selected':'') + '>Lenient</option>' +
+            '</select>' +
+          '</div>' +
+          renderTimerSetting('exam', rec, ts.timerMode, ts.timerCustom) +
+        '</div>' +
+        '<div class="field">' +
+          '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="exam-spelling" ' + (ts.spellingLenient!==false?'checked':'') + ' /> Ignore minor spelling &amp; grammar mistakes when grading</label>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label class="field-label">Examiner persona <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+          '<input type="text" id="exam-persona" value="' + esc(ts.persona||'') + '" placeholder="e.g. a tough but fair professor..." />' +
+        '</div>' +
+        '<button class="btn btn-primary" id="build-exam" style="margin-top:var(--sp-2);">Generate comprehensive exam</button>' +
+      '</div>'
+    ) : '')
+  );
+}
+
+async function generateComprehensiveTest({ sets, level, count, leniency, persona }){
+  const targetLang = getTargetLang();
+  const leniencyNote = {
+    strict: 'Grading will be STRICT — write rubrics that require precise, complete answers for full credit.',
+    standard: 'Grading will be STANDARD — write rubrics that reward solid understanding without demanding perfect wording.',
+    lenient: 'Grading will be LENIENT — write rubrics focused on core understanding, forgiving of minor gaps or imprecision.'
+  }[leniency || 'standard'];
+  const personaNote = persona && persona.trim() ? ('Write questions in the voice/spirit of this examiner persona: "' + persona.trim() + '".') : '';
+  const combinedMaterial = sets.map(s => '=== ' + s.title + ' (' + (s.category||'General') + ') ===\n' + s.notesSummary).join('\n\n');
+  const prompt = [
+    'Write a cumulative, comprehensive exam for a ' + (level==='college'?'college':'high school') + ' student covering ALL of the following study units together, based only on the material below:',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    leniencyNote,
+    personaNote,
+    '',
+    combinedMaterial,
+    '',
+    'IMPORTANT: Write all questions, rubrics, and related text entirely in ' + targetLang + '.',
+    'Produce a JSON object: { "questions": [ { "type": "short_answer" or "essay", "sourceTitle": string, "question": string, "rubric": string, "points": number } ] }.',
+    'Write exactly ' + count + ' questions total, distributed as evenly and fairly as possible across all ' + sets.length + ' units listed (roughly balanced, not just weighted to one). "sourceTitle" must exactly match which unit title above the question is drawn from.',
+    'Mostly short_answer; include a small number of essay questions only if it genuinely supports cumulative synthesis across units.',
+    'The "rubric" field briefly describes what a full-credit answer must include; do not show it to the student.',
+    'Points should sum to 100 across all questions.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  return callGemini([{ text: prompt }]);
+}
+
+// ═══════════════════════ STEP-BY-STEP SOLUTIONS ═══════════════════════
+
+async function generateStepSolution({ question, answerOrRubric, level }){
+  const targetLang = getTargetLang();
+  const prompt = [
+    'Write a clear, step-by-step solution walkthrough for this question, for a ' + (level==='college'?'college':'high school') + ' student.',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    'Respond entirely in ' + targetLang + '.',
+    '',
+    'Question: ' + question,
+    answerOrRubric ? 'Correct answer / rubric (for your reference, to make sure the steps actually arrive at it): ' + answerOrRubric : '',
+    '',
+    'Produce a JSON object: { "steps": [string, string, ...] }.',
+    'Break the reasoning into 3-7 short, sequential steps a student could follow to solve it themselves — show the actual work/reasoning at each step (calculations, formula application, logical deductions), not just vague hints. The final step should state the answer clearly.',
+    'Respond with JSON only.',
+  ].filter(Boolean).join('\n');
+  const res = await callGemini([{ text: prompt }]);
+  return res.steps || [];
+}
+
+function stepSolutionKey(source, idx){ return source + '_' + idx; }
+
+function renderStepSolutionBlock(source, idx, question, answerOrRubric){
+  const key = stepSolutionKey(source, idx);
+  const state = S.stepSolutions[key];
+  const isOpen = state && state.open;
+  return (
+    '<button class="btn btn-quiet btn-sm" style="margin-top:8px; margin-right:8px;" data-toggle-steps="' + source + '" data-tutor-idx="' + idx + '">' +
+      (isOpen ? 'Hide step-by-step solution' : 'Show step-by-step solution') +
+    '</button>' +
+    (isOpen ? (
+      '<div class="step-solution">' +
+        (state.loading ? '<div class="step-loading">Working through it...</div>' :
+          state.error ? '<div class="callout error" style="margin-top:8px;">' + esc(state.error) + '</div>' :
+          '<ol class="step-list">' + (state.steps||[]).map(s => '<li>' + esc(s) + '</li>').join('') + '</ol>'
+        ) +
+      '</div>'
+    ) : '')
+  );
+}
+
+async function toggleStepSolution(source, idx, question, answerOrRubric){
+  const key = stepSolutionKey(source, idx);
+  if(!S.stepSolutions[key]) S.stepSolutions[key] = { open: false, loading: false, steps: null, error: null };
+  const state = S.stepSolutions[key];
+  state.open = !state.open;
+  if(state.open && !state.steps && !state.loading){
+    state.loading = true;
+    render();
+    try{
+      state.steps = await generateStepSolution({ question, answerOrRubric, level: S.profile?.level });
+    }catch(e){
+      state.error = 'Could not generate a solution: ' + e.message;
+    }finally{
+      state.loading = false;
+      render();
+    }
+  } else {
+    render();
+  }
+}
+
+// ═══════════════════════ REGENERATE A SINGLE QUESTION ═══════════════════════
+
+function regenKey(source, idx){ return source + '_' + idx; }
+
+async function regenerateQuestion(source, idx){
+  const set = S.studySets.find(s => s.id === S.currentSetId);
+  if(!set) return;
+  const sess = source === 'quiz' ? S.quizSession : source === 'customtest' ? S.customTestSession : S.testSession;
+  if(!sess) return;
+  const q = sess.questions[idx];
+  if(!q) return;
+
+  const key = regenKey(source, idx);
+  if(!S.regenerating) S.regenerating = {};
+  if(S.regenerating[key]) return; // already in flight
+  S.regenerating[key] = true;
+  render();
+
+  try{
+    let newQ;
+    if(source === 'quiz'){
+      const results = await generateQuizOnly({
+        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        count: 1, types: [q.type], avoidQuestions: [q.question]
+      });
+      newQ = results[0];
+    } else if(source === 'test'){
+      const result = await generateTest({
+        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        count: 1, leniency: sess.leniency, persona: sess.persona,
+        avoidQuestions: [q.question], targetPoints: q.points
+      });
+      newQ = result.questions[0];
+    } else { // customtest
+      const results = await generateCustomTest({
+        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        count: 1, types: [q.type], leniency: sess.leniency, persona: sess.persona,
+        avoidQuestions: [q.question], targetPoints: q.points
+      });
+      newQ = results[0];
+    }
+    if(!newQ) throw new Error('The model didn\'t return a replacement question. Try again.');
+    sess.questions[idx] = newQ;
+    delete sess.answers[idx];
+    delete S.stepSolutions[key];
+  }catch(e){
+    alert('Could not regenerate this question: ' + e.message);
+  }finally{
+    S.regenerating[key] = false;
+    render();
+  }
+}
+
+function renderRegenerateBtn(source, idx){
+  const key = regenKey(source, idx);
+  const busy = S.regenerating && S.regenerating[key];
+  return '<button type="button" class="regen-btn" data-regen-question="' + source + '" data-tutor-idx="' + idx + '" ' + (busy?'disabled':'') + '>' + (busy ? 'Regenerating...' : '&#8635; Regenerate') + '</button>';
+}
+
+// ═══════════════════════ PUBLIC EXPLORE SPACE ═══════════════════════
+
+async function loadExploreSets(){
+  if(!S.supabaseClient) return;
+  S.exploreLoading = true;
+  render();
+  try{
+    let query = S.supabaseClient
+      .from('published_sets')
+      .select('id, author_id, author_name, title, category, description, notes_summary, sticky_notes, quiz, is_copyable, is_anonymous, clone_count, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    const { data, error } = await query;
+    if(error) throw error;
+    S.exploreSets = data || [];
+  }catch(e){
+    console.error('Failed to load Explore sets', e);
+    S.exploreSets = [];
+  }finally{
+    S.exploreLoading = false;
+    render();
+  }
+}
+
+async function loadMyUploads(){
+  if(!S.supabaseClient) return;
+  S.myUploadsLoading = true;
+  render();
+  try{
+    const { data: { session } } = await S.supabaseClient.auth.getSession();
+    if(!session){ S.myUploads = []; return; }
+    const { data, error } = await S.supabaseClient
+      .from('published_sets')
+      .select('id, title, category, description, is_copyable, is_anonymous, clone_count, created_at')
+      .eq('author_id', session.user.id)
+      .order('created_at', { ascending: false });
+    if(error) throw error;
+    S.myUploads = data || [];
+  }catch(e){
+    console.error('Failed to load your uploads', e);
+    S.myUploads = [];
+  }finally{
+    S.myUploadsLoading = false;
+    render();
+  }
+}
+
+async function publishSetToExplore(set, isCopyable, description, isAnonymous){
+  if(!S.supabaseClient) return;
+  const { data: { session } } = await S.supabaseClient.auth.getSession();
+  if(!session) return;
+  const row = {
+    author_id: session.user.id,
+    author_name: S.profile?.name || 'Anonymous',
+    original_set_id: set.id,
+    title: set.title,
+    category: set.category || 'General',
+    description: (description || '').slice(0, 300),
+    notes_summary: set.notesSummary || '',
+    sticky_notes: (set.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body })),
+    quiz: (set.quiz || []).map(q => ({ type: q.type, topic: q.topic, question: q.question, options: q.options || [], answer: q.answer, explanation: q.explanation || '' })),
+    is_copyable: isCopyable,
+    is_anonymous: !!isAnonymous
+  };
+  const { error } = await S.supabaseClient.from('published_sets').insert(row);
+  if(error){ alert('Could not publish: ' + error.message); return; }
+  alert('Published to Explore' + (isCopyable ? '' : ' as view-only') + '. Anyone can find it under the Explore tab now.');
+  S.publishPanelOpen = false;
+  S.publishDescription = '';
+  S.publishAnonymous = false;
+  render();
+}
+
+async function unpublishSet(pubId){
+  if(!confirm('Take this down from Explore? People who already copied it keep their own copy either way.')) return;
+  if(!S.supabaseClient) return;
+  try{
+    await S.supabaseClient.from('published_sets').delete().eq('id', pubId);
+    S.myUploads = S.myUploads.filter(p => p.id !== pubId);
+    render();
+  }catch(e){
+    alert('Could not unpublish: ' + e.message);
+  }
+}
+
+async function updatePublishedSettings(pubId, patch){
+  if(!S.supabaseClient) return;
+  try{
+    await S.supabaseClient.from('published_sets').update(patch).eq('id', pubId);
+    const item = S.myUploads.find(p => p.id === pubId);
+    if(item) Object.assign(item, patch);
+    S.editingPublishedId = null;
+    render();
+  }catch(e){
+    alert('Could not update: ' + e.message);
+  }
+}
+
+async function cloneExploreSet(pub){
+  if(!confirm('Add "' + pub.title + '" to your study sets? You\'ll get your own independent copy you can edit, quiz on, and everything else.')) return;
+  const authorLabel = pub.is_anonymous ? 'Anonymous' : pub.author_name;
+  const newSet = {
+    id: uid(),
+    title: pub.title,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    notesSummary: pub.notes_summary,
+    category: pub.category || 'General',
+    stickyNotes: (pub.sticky_notes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
+    quiz: pub.quiz || [],
+    history: [],
+    clonedFromTitle: pub.title,
+    clonedFromAuthor: authorLabel
+  };
+  S.loading = true;
+  S.loadingMsg = 'Reading materials & generating study set...';
+  render();
+  try{
+    await saveStudySet(newSet);
+    if(!S.statsSelectedSetIds) S.statsSelectedSetIds = [];
+    S.statsSelectedSetIds.push(newSet.id);
+    if(S.supabaseClient){
+      try{
+        await S.supabaseClient.from('published_sets').update({ clone_count: (pub.clone_count||0) + 1 }).eq('id', pub.id);
+      }catch(e){ /* non-critical */ }
+    }
+    S.recentCloneInfo = { title: pub.title, author: authorLabel };
+    S.currentSetId = newSet.id;
+    S.currentTab = 'notes';
+    S.route = 'set';
+  }catch(e){
+    alert('Could not add this set: ' + e.message);
+  }finally{
+    S.loading = false;
+    render();
+  }
+}
+
+function renderExplore(){
+  if(S.exploreTab === 'myuploads') return renderMyUploads();
+  if(S.exploreDetailId){
+    const pub = S.exploreSets.find(p => p.id === S.exploreDetailId);
+    if(pub) return renderExploreDetail(pub);
+  }
+
+  const search = (S.exploreSearch || '').trim().toLowerCase();
+  const filtered = S.exploreSets.filter(p => {
+    if(!search) return true;
+    const hay = (p.title + ' ' + (p.category||'') + ' ' + (p.author_name||'')).toLowerCase();
+    return hay.includes(search);
+  });
+
+  return (
+    '<div class="section-heading"><h2>Explore</h2><span class="muted" style="font-size:13px">' + S.exploreSets.length + ' published set' + (S.exploreSets.length===1?'':'s') + '</span></div>' +
+    '<div class="choice-row" style="margin-bottom:var(--sp-4);">' +
+      '<button class="choice-pill selected" data-explore-tab="browse">Browse</button>' +
+      '<button class="choice-pill" data-explore-tab="myuploads">My Uploads</button>' +
+    '</div>' +
+    '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Browse study sets other people have published. Copyable ones you can add straight to your own study sets and use however you like; view-only ones you can still read through here.</p>' +
+    '<input type="text" class="dash-search-input" id="explore-search" placeholder="Search by title, subject, or author..." value="' + esc(S.exploreSearch||'') + '" />' +
+    (S.exploreLoading ? '<div class="stats-empty">Loading Explore...</div>' :
+      (filtered.length === 0 ? '<div class="stats-empty">' + (S.exploreSets.length===0 ? 'Nothing has been published yet. Be the first — open a study set and use "Publish to Explore" on its Notes tab.' : 'No published sets match your search.') + '</div>' :
+        '<div class="explore-grid">' +
+          filtered.map(p => (
+            '<div class="explore-card" data-view-explore="' + p.id + '">' +
+              '<div class="explore-card-top">' +
+                '<span class="chip-cat">' + esc(p.category||'General') + '</span>' +
+                (p.is_copyable ? '<span class="explore-badge copyable">Copyable</span>' : '<span class="explore-badge viewonly">View only</span>') +
+              '</div>' +
+              '<h4>' + esc(p.title) + '</h4>' +
+              (p.description ? '<p class="explore-desc">' + esc(p.description) + '</p>' : '') +
+              '<div class="explore-meta">by ' + esc(p.is_anonymous ? 'Anonymous' : p.author_name) + ' &bull; ' + (p.sticky_notes?.length||0) + ' notes &bull; ' + (p.quiz?.length||0) + ' quiz Qs' + (p.clone_count ? ' &bull; ' + p.clone_count + ' added' : '') + '</div>' +
+            '</div>'
+          )).join('') +
+        '</div>'
+      )
+    )
+  );
+}
+
+function renderMyUploads(){
+  const totalClones = S.myUploads.reduce((acc,p)=>acc+(p.clone_count||0), 0);
+  return (
+    '<div class="section-heading"><h2>Explore</h2></div>' +
+    '<div class="choice-row" style="margin-bottom:var(--sp-4);">' +
+      '<button class="choice-pill" data-explore-tab="browse">Browse</button>' +
+      '<button class="choice-pill selected" data-explore-tab="myuploads">My Uploads</button>' +
+    '</div>' +
+    '<div class="explore-profile-card">' +
+      '<div class="explore-profile-name">' + esc(S.profile?.name || 'You') + '</div>' +
+      '<div class="explore-meta">' + S.myUploads.length + ' published set' + (S.myUploads.length===1?'':'s') + ' &bull; ' + totalClones + ' total time' + (totalClones===1?'':'s') + ' added by others</div>' +
+    '</div>' +
+    (S.myUploadsLoading ? '<div class="stats-empty">Loading your uploads...</div>' :
+      (S.myUploads.length === 0 ? '<div class="stats-empty">You haven\'t published anything yet. Open a study set and use "Publish to Explore" on its Notes tab.</div>' :
+        S.myUploads.map(p => {
+          const isEditing = S.editingPublishedId === p.id;
+          return (
+            '<div class="my-upload-row">' +
+              '<div style="flex:1; min-width:0;">' +
+                '<div class="ledger-title">' + esc(p.title) + ' ' + (p.is_copyable ? '<span class="explore-badge copyable">Copyable</span>' : '<span class="explore-badge viewonly">View only</span>') + (p.is_anonymous ? ' <span class="explore-badge">Anonymous</span>' : '') + '</div>' +
+                '<div class="explore-meta">' + esc(p.category||'General') + ' &bull; published ' + new Date(p.created_at).toLocaleDateString() + ' &bull; ' + (p.clone_count||0) + ' added</div>' +
+                (p.description ? '<p class="explore-desc">' + esc(p.description) + '</p>' : '') +
+                (isEditing ? (
+                  '<div class="setup-panel" style="margin-top:var(--sp-3);">' +
+                    '<div class="choice-row">' +
+                      '<button class="choice-pill ' + (p.is_copyable?'selected':'') + '" data-edit-copyable="' + p.id + '" data-val="true">Copyable</button>' +
+                      '<button class="choice-pill ' + (!p.is_copyable?'selected':'') + '" data-edit-copyable="' + p.id + '" data-val="false">View only</button>' +
+                    '</div>' +
+                    '<label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-top:var(--sp-3); cursor:pointer;"><input type="checkbox" id="edit-anon-' + p.id + '" ' + (p.is_anonymous?'checked':'') + ' /> Publish anonymously</label>' +
+                    '<textarea id="edit-desc-' + p.id + '" placeholder="Short description (optional)" style="margin-top:var(--sp-3); min-height:60px;">' + esc(p.description||'') + '</textarea>' +
+                    '<div style="margin-top:var(--sp-3); display:flex; gap:8px;">' +
+                      '<button class="btn btn-primary btn-sm" data-save-edit="' + p.id + '">Save changes</button>' +
+                      '<button class="btn btn-quiet btn-sm" data-cancel-edit="' + p.id + '">Cancel</button>' +
+                    '</div>' +
+                  '</div>'
+                ) : (
+                  '<div style="margin-top:8px; display:flex; gap:8px;">' +
+                    '<button class="btn btn-quiet btn-sm" data-edit-upload="' + p.id + '">Edit settings</button>' +
+                    '<button class="btn btn-quiet btn-sm" data-unpublish="' + p.id + '">Unpublish</button>' +
+                  '</div>'
+                )) +
+              '</div>' +
+            '</div>'
+          );
+        }).join('')
+      )
+    )
+  );
+}
+
+function renderExploreDetail(pub){
+  return (
+    '<button class="btn btn-quiet btn-sm" id="explore-back" style="margin-bottom:var(--sp-4);">&larr; Back to Explore</button>' +
+    '<div class="section-heading">' +
+      '<h2>' + esc(pub.title) + '</h2>' +
+      (pub.is_copyable ? '<span class="explore-badge copyable">Copyable</span>' : '<span class="explore-badge viewonly">View only</span>') +
+    '</div>' +
+    '<div class="explore-meta" style="margin-bottom:var(--sp-3);">' + esc(pub.category||'General') + ' &bull; by ' + esc(pub.is_anonymous ? 'Anonymous' : pub.author_name) + ' &bull; published ' + new Date(pub.created_at).toLocaleDateString() + '</div>' +
+    (pub.description ? '<p class="explore-desc" style="margin-bottom:var(--sp-4);">' + esc(pub.description) + '</p>' : '') +
+    (pub.is_copyable
+      ? '<button class="btn btn-primary" data-clone-explore="' + pub.id + '" style="margin-bottom:var(--sp-5);">Add to My Study Sets</button>'
+      : '<div class="callout" style="margin-bottom:var(--sp-5); font-size:13px;">The author made this view-only &mdash; you can read through it here, but it can\'t be added to your own study sets.</div>'
+    ) +
+    '<h3 style="margin-bottom:var(--sp-3)">Notes Summary</h3>' +
+    '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px; margin-bottom:var(--sp-6);">' + esc(pub.notes_summary||'') + '</div>' +
+    (pub.sticky_notes && pub.sticky_notes.length ? (
+      '<h3 style="margin-bottom:var(--sp-3)">Sticky Notes</h3>' +
+      '<div class="notes-grid" style="margin-bottom:var(--sp-6);">' +
+        pub.sticky_notes.map(sn => '<div class="sticky"><h4>' + esc(sn.title) + '</h4><p>' + esc(sn.body) + '</p></div>').join('') +
+      '</div>'
+    ) : '') +
+    (pub.quiz && pub.quiz.length ? (
+      '<h3 style="margin-bottom:var(--sp-3)">Quiz Preview (' + pub.quiz.length + ' questions)</h3>' +
+      pub.quiz.slice(0, 5).map((q,i) => (
+        '<div class="qcard"><div class="qnum">QUESTION ' + (i+1) + ' &bull; ' + TYPE_LABELS[q.type] + '</div><div class="qtext">' + esc(q.question) + '</div></div>'
+      )).join('') +
+      (pub.quiz.length > 5 ? '<p class="muted" style="font-size:13px;">+ ' + (pub.quiz.length-5) + ' more question' + (pub.quiz.length-5===1?'':'s') + '...</p>' : '')
+    ) : '')
+  );
+}
+
+function renderNewSet(){
+  const d = S.newSet || { title:'', notesText:'', files:[], level: S.profile?.level||'college' };
+  S.newSet = d;
+  return (
+    '<div class="app-narrow">' +
+      '<h2 style="margin-bottom:var(--sp-5)">New Study Set</h2>' +
+      '<div class="field">' +
+        '<label class="field-label">Set title / topic</label>' +
+        '<input type="text" id="ns-title" value="' + esc(d.title) + '" placeholder="e.g. Constitutional Law - Due Process" />' +
+      '</div>' +
+      '<div class="field">' +
+        '<label class="field-label">Paste notes</label>' +
+        '<textarea id="ns-notes" placeholder="Paste your lecture notes, textbook excerpts, or outline here...">' + esc(d.notesText) + '</textarea>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label class="field-label">Or attach study files (images / PDFs of notes)</label>' +
+        '<div class="dropzone" id="ns-dropzone">Drop image/PDF files here or click to browse</div>' +
+        '<input type="file" id="ns-fileinput" multiple accept="image/*,application/pdf" style="display:none" />' +
+        (d.files && d.files.length ? 
+          '<div class="upload-list">' +
+            d.files.map((f,i)=>'<div class="upload-item"><span>' + esc(f.name) + '</span><button type="button" data-remove-file="' + i + '">Remove</button></div>').join('') +
+          '</div>' : ''
+        ) +
+      '</div>' +
+      '<div class="field">' +
+        '<label class="field-label">Education level</label>' +
+        '<select id="ns-level">' +
+          '<option value="college" ' + (d.level==='college'?'selected':'') + '>College</option>' +
+          '<option value="highschool" ' + (d.level==='highschool'?'selected':'') + '>High school</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="field-hint" style="margin-bottom:var(--sp-4);">Quiz length, question types, difficulty, and timer are all set later, right on the Practice Quiz and Formal Test tabs for this set — so you can change them freely every time you study.</div>' +
+      '<div style="display:flex; gap:var(--sp-3); margin-top:var(--sp-6)">' +
+        '<button class="btn btn-primary" id="ns-generate">Generate study set with AI</button>' +
+        '<button class="btn btn-quiet" data-nav="dashboard">Cancel</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderSet(){
+  const set = S.studySets.find(s=>s.id===S.currentSetId);
+  if(!set) return '<div>Study set not found.</div>';
+  const tab = S.currentTab;
+  return (
+    '<div>' +
+      '<div style="margin-bottom:var(--sp-4);"><button class="btn btn-quiet btn-sm" data-nav="dashboard">&larr; Back to study sets</button></div>' +
+      '<div class="section-heading" style="margin-bottom:var(--sp-4)">' +
+        '<h2>' + esc(set.title) + '</h2>' +
+      '</div>' +
+      '<div class="tabs">' +
+        '<button class="tab ' + (tab==='notes'?'active':'') + '" data-set-tab="notes">Notes & Sticky Notes</button>' +
+        '<button class="tab ' + (tab==='quiz'?'active':'') + '" data-set-tab="quiz">Practice Quiz</button>' +
+        '<button class="tab ' + (tab==='test'?'active':'') + '" data-set-tab="test">Formal Test</button>' +
+        '<button class="tab ' + (tab==='customtest'?'active':'') + '" data-set-tab="customtest">Custom Test</button>' +
+      '</div>' +
+      renderSetTabContent(set, tab) +
+    '</div>'
+  );
+}
+
+function renderSetTabContent(set, tab){
+  switch(tab){
+    case 'notes': return renderTabNotes(set);
+    case 'quiz': return renderTabQuiz(set);
+    case 'test': return renderTabTest(set);
+    case 'customtest': return renderTabCustomTest(set);
+    default: return '';
+  }
+}
+
+function renderTabNotes(set){
+  const mode = S.notesMode || 'grid';
+  const notes = set.stickyNotes || [];
+  return (
+    '<div>' +
+      '<div style="display:flex; justify-content:flex-end; gap:var(--sp-3); margin-bottom:var(--sp-4);">' +
+        '<button class="btn btn-quiet btn-sm" data-export-pdf="' + set.id + '">Export / Print PDF</button>' +
+        '<button class="btn btn-quiet btn-sm" id="toggle-publish-panel">Publish to Explore</button>' +
+      '</div>' +
+      (S.publishPanelOpen ? (
+        '<div class="setup-panel" style="margin-bottom:var(--sp-5);">' +
+          '<div class="field">' +
+            '<label class="field-label">Visibility</label>' +
+            '<div class="choice-row">' +
+              '<button class="choice-pill ' + ((S.publishCopyable!==false)?'selected':'') + '" id="publish-copyable-on">Copyable &mdash; anyone can add it to their own study sets</button>' +
+            '</div>' +
+            '<div class="choice-row" style="margin-top:6px;">' +
+              '<button class="choice-pill ' + (S.publishCopyable===false?'selected':'') + '" id="publish-copyable-off">View only &mdash; others can read it but not copy it</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Description <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+            '<textarea id="publish-description" placeholder="What is this study set about? Any context that would help someone decide if it\'s useful to them." style="min-height:70px;">' + esc(S.publishDescription||'') + '</textarea>' +
+            '<div class="field-hint">Shown on the card in Explore, separate from the notes summary itself.</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="publish-anonymous" ' + (S.publishAnonymous?'checked':'') + ' /> Publish anonymously (hide my name, show "Anonymous" instead)</label>' +
+          '</div>' +
+          '<div class="field-hint" style="margin-bottom:var(--sp-3);">This publishes a snapshot of your current notes summary, sticky notes, and quiz questions. Later edits to this set won\'t update the published copy — republish any time from here, or manage/unpublish it from Explore &rarr; My Uploads.</div>' +
+          '<button class="btn btn-primary btn-sm" id="confirm-publish">Publish</button>' +
+          '<button class="btn btn-quiet btn-sm" id="cancel-publish">Cancel</button>' +
+        '</div>'
+      ) : '') +
+      '<div style="margin-bottom:var(--sp-6)">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-3);">' +
+          '<h3>Revision Sticky Notes</h3>' +
+          (notes.length ? (
+            '<div class="choice-row" style="margin:0;">' +
+              '<button class="choice-pill ' + (mode==='grid'?'selected':'') + '" data-notes-mode="grid">Grid</button>' +
+              '<button class="choice-pill ' + (mode==='flashcards'?'selected':'') + '" data-notes-mode="flashcards">Flashcards</button>' +
+            '</div>'
+          ) : '') +
+        '</div>' +
+        (mode === 'flashcards' && notes.length ? renderFlashcardReviewer(notes) : (
+          '<div class="notes-grid">' +
+            notes.map((sn, i) => (
+              '<div class="sticky stagger-in" style="animation-delay:' + (i*40) + 'ms">' +
+                '<h4>' + esc(sn.title) + '</h4>' +
+                '<p>' + esc(sn.body) + '</p>' +
+              '</div>'
+            )).join('') +
+          '</div>'
+        )) +
+      '</div>' +
+      '<hr class="divider" />' +
+      '<div>' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-3);">' +
+          '<h3>Consolidated Notes Summary</h3>' +
+          '<button class="btn btn-quiet btn-sm" id="toggle-active-recall">' + (S.activeRecallMode ? 'Show full text' : 'Active Recall Mode') + '</button>' +
+        '</div>' +
+        (S.activeRecallMode
+          ? '<div class="callout cloze-summary" style="white-space:pre-wrap; line-height:1.8; font-family:var(--font-serif); font-size:14.5px;">' + renderClozeSummary(set) + '</div>'
+          : '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px;">' + esc(set.notesSummary||'') + '</div>'
+        ) +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function escRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function exportSetToPdf(set){
+  const notesHtml = (set.stickyNotes || []).map(sn => (
+    '<div class="pdf-card">' +
+      '<h4>' + esc(sn.title) + '</h4>' +
+      '<p>' + esc(sn.body) + '</p>' +
+    '</div>'
+  )).join('');
+
+  const doc = [
+    '<!doctype html><html><head><meta charset="UTF-8" />',
+    '<title>' + esc(set.title) + ' - Marginalia</title>',
+    '<link rel="preconnect" href="https://fonts.googleapis.com">',
+    '<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">',
+    '<style>',
+    '  body{ font-family:"IBM Plex Sans",sans-serif; color:#1B1D19; max-width:800px; margin:40px auto; padding:0 24px; }',
+    '  h1{ font-family:"Source Serif 4",serif; font-size:26px; margin-bottom:4px; }',
+    '  .meta{ font-family:"IBM Plex Mono",monospace; font-size:12px; color:#86847A; margin-bottom:28px; }',
+    '  h2{ font-family:"Source Serif 4",serif; font-size:18px; border-bottom:1px solid #C9C4B4; padding-bottom:6px; margin-top:32px; }',
+    '  .summary{ font-family:"Source Serif 4",serif; font-size:14.5px; line-height:1.7; white-space:pre-wrap; }',
+    '  .pdf-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:16px; }',
+    '  .pdf-card{ border:1px solid #C9C4B4; padding:12px 14px; break-inside:avoid; }',
+    '  .pdf-card h4{ font-family:"Source Serif 4",serif; font-size:14px; margin:0 0 6px; }',
+    '  .pdf-card p{ font-size:12.5px; line-height:1.5; margin:0; color:#333; }',
+    '  .print-bar{ margin-bottom:24px; }',
+    '  .print-bar button{ font-family:"IBM Plex Sans",sans-serif; font-size:13px; padding:8px 16px; cursor:pointer; background:#7A1F2B; color:#fff; border:1px solid #7A1F2B; }',
+    '  @media print{ .print-bar{ display:none; } body{ margin:0; padding:0 12px; } }',
+    '  @page{ margin: 18mm 14mm; }',
+    '</style></head><body>',
+    '<div class="print-bar"><button onclick="window.print()">Print / Save as PDF</button></div>',
+    '<h1>' + esc(set.title) + '</h1>',
+    '<div class="meta">' + esc(set.category || 'General') + ' &bull; Exported ' + new Date().toLocaleDateString() + ' &bull; Marginalia</div>',
+    '<h2>Notes Summary</h2>',
+    '<div class="summary">' + esc(set.notesSummary || '') + '</div>',
+    (notesHtml ? ('<h2>Revision Sticky Notes</h2><div class="pdf-grid">' + notesHtml + '</div>') : ''),
+    // Auto-print lives INSIDE the generated page itself (not the opener) so it
+    // reliably fires regardless of cross-window timing/communication quirks.
+    '<scr' + 'ipt>window.addEventListener("load", function(){ setTimeout(function(){ window.print(); }, 350); });</scr' + 'ipt>',
+    '</body></html>'
+  ].join('');
+
+  // A Blob URL is far more reliable across browsers than window.open('',...)
+  // + document.write(), which several modern browsers (Safari, recent Chrome)
+  // will silently render as a blank tab.
+  const blob = new Blob([doc], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if(!win){
+    alert('Your browser blocked the export tab. Allow pop-ups for this site and try again.');
+    URL.revokeObjectURL(url);
+    return;
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function renderClozeSummary(set){
+  const text = set.notesSummary || '';
+  const terms = (set.stickyNotes || []).map(sn => sn.title).filter(t => t && t.trim().length > 1);
+  if(!terms.length) return esc(text);
+  const sorted = terms.slice().sort((a,b) => b.length - a.length);
+  const pattern = sorted.map(escRegex).join('|');
+  const re = new RegExp('(' + pattern + ')', 'gi');
+  const maskedOnce = new Set();
+  let idx = 0;
+  let result = '';
+  let lastIndex = 0;
+  let m;
+  while((m = re.exec(text)) !== null){
+    const term = m[0];
+    const key = term.toLowerCase();
+    result += esc(text.slice(lastIndex, m.index));
+    if(!maskedOnce.has(key)){
+      maskedOnce.add(key);
+      result += '<span class="cloze-blank" data-answer="' + esc(term) + '" data-cloze-idx="' + (idx++) + '">[ _____ ]</span>';
+    } else {
+      result += esc(term);
+    }
+    lastIndex = m.index + term.length;
+    if(m.index === re.lastIndex) re.lastIndex++; // guard against zero-length match loops
+  }
+  result += esc(text.slice(lastIndex));
+  return result;
+}
+
+// ═══════════════════════ DAILY REVIEW (LEITNER SPACED REPETITION) ═══════════════════════
+
+const LEITNER_INTERVALS_DAYS = [1, 3, 7, 14];
+
+function gradeCardReview(note, gotIt){
+  if(gotIt){
+    note.boxLevel = Math.min((note.boxLevel||0) + 1, LEITNER_INTERVALS_DAYS.length);
+  } else {
+    note.boxLevel = 0;
+  }
+  const days = LEITNER_INTERVALS_DAYS[Math.max(0, Math.min(note.boxLevel - 1, LEITNER_INTERVALS_DAYS.length - 1))] || 1;
+  note.lastReviewed = Date.now();
+  note.nextReview = Date.now() + days * 86400000;
+}
+
+async function persistCardReview(setId, note){
+  if(!S.supabaseClient || !note.id) return;
+  try{
+    await S.supabaseClient.from('sticky_notes').update({
+      box_level: note.boxLevel,
+      next_review: new Date(note.nextReview).toISOString(),
+      last_reviewed: new Date(note.lastReviewed).toISOString()
+    }).eq('id', note.id);
+  }catch(e){ console.error('Failed to persist card review', e); }
+}
+
+function computeDueCards(sets){
+  const now = Date.now();
+  const due = [];
+  sets.forEach(set => {
+    (set.stickyNotes || []).forEach((note, noteIndex) => {
+      const nextReview = note.nextReview != null ? note.nextReview : 0; // never-reviewed cards are due immediately
+      if(nextReview <= now){
+        due.push({
+          setId: set.id,
+          setTitle: set.title,
+          category: set.category || 'General',
+          noteIndex,
+          title: note.title,
+          body: note.body,
+          nextReview
+        });
+      }
+    });
+  });
+  due.sort((a,b) => a.nextReview - b.nextReview);
+  return due;
+}
+
+// ── Daily Review browser notifications ──
+// Honest limitation: this only fires while the app is open in a tab (or
+// backgrounded but not closed) - it is not a true OS-level push, since that
+// would require a service worker + a server to trigger sends while the
+// browser itself is fully closed, which this static app doesn't have.
+let _reviewNotifTimer = null;
+
+function startReviewNotifTimer(){
+  if(_reviewNotifTimer) return; // don't stack multiple intervals across re-loads
+  _reviewNotifTimer = setInterval(() => checkAndNotifyDueCards(false), 60 * 60 * 1000); // hourly while open
+}
+
+function checkAndNotifyDueCards(force){
+  if(!S.reviewNotifsEnabled) return;
+  if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+
+  const due = computeDueCards(S.studySets || []);
+  if(due.length === 0) return;
+
+  const todayKey = new Date().toDateString();
+  const lastNotified = localStorage.getItem('lastReviewNotifDate');
+  if(!force && lastNotified === todayKey) return; // already nudged once today
+
+  try{
+    const notif = new Notification('Marginalia - Daily Review', {
+      body: 'You have ' + due.length + ' card' + (due.length===1?'':'s') + ' due for review.',
+      tag: 'daily-review' // replaces any previous one instead of stacking
+    });
+    notif.onclick = () => {
+      window.focus();
+      clearActiveTimer();
+      S.route = 'dailyreview';
+      S.dailyReviewQueue = computeDueCards(S.studySets).slice(0, 15);
+      render();
+      notif.close();
+    };
+    localStorage.setItem('lastReviewNotifDate', todayKey);
+  }catch(e){ console.error('Notification failed', e); }
+}
+
+/** Fires the exact same kind of notification as the real reminder, but with
+ *  placeholder text and no daily throttle / due-card requirement, purely so
+ *  you can confirm notifications actually show up and look right. */
+function sendTestNotification(){
+  if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try{
+    const notif = new Notification('Marginalia - Test Notification', {
+      body: 'Lorem ipsum dolor sit amet — this is just a placeholder to test how notifications look. You have 12 cards due for review.',
+      tag: 'test-notification'
+    });
+    notif.onclick = () => { window.focus(); notif.close(); };
+  }catch(e){ console.error('Test notification failed', e); }
+}
+
+function handleDailyReviewGrade(gotIt){
+  const queue = S.dailyReviewQueue;
+  if(!queue || !queue.length) return;
+  const item = queue[0];
+  const set = S.studySets.find(s => s.id === item.setId);
+  const note = set && set.stickyNotes[item.noteIndex];
+  if(note){
+    gradeCardReview(note, gotIt);
+    persistCardReview(set.id, note);
+  }
+  queue.shift();
+  S.dailyReviewFlipped = false;
+  render();
+}
+
+function renderDailyReview(){
+  const queue = S.dailyReviewQueue || [];
+  if(queue.length === 0){
+    return (
+      '<div class="section-heading"><h2>Daily Review</h2></div>' +
+      '<div class="stats-empty">' +
+        '<p style="margin-bottom:var(--sp-3);">You&rsquo;re all caught up &mdash; no cards are due for review right now.</p>' +
+        '<button class="btn btn-primary" data-nav="dashboard">Back to Study Sets</button>' +
+      '</div>'
+    );
+  }
+  const card = queue[0];
+  const flipped = S.dailyReviewFlipped;
+  return (
+    '<div class="section-heading"><h2>Daily Review</h2></div>' +
+    '<div style="text-align:center; margin-bottom:var(--sp-3); font-family:var(--font-mono); font-size:12.5px; color:var(--ink-faint);">' +
+      queue.length + ' card' + (queue.length===1?'':'s') + ' remaining &bull; ' + esc(card.setTitle) + ' (' + esc(card.category) + ')' +
+    '</div>' +
+    '<div class="flashcard-wrap ' + (flipped?'flipped':'') + '" id="dr-card">' +
+      '<div class="flashcard-inner">' +
+        '<div class="flashcard-face front"><span class="fc-label">CONCEPT &bull; tap to flip</span><span class="fc-text">' + esc(card.title) + '</span></div>' +
+        '<div class="flashcard-face back"><span class="fc-label">EXPLANATION</span><span class="fc-text">' + esc(card.body) + '</span></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="fc-actions">' +
+      '<button class="btn btn-quiet btn-sm" id="dr-review">Still learning</button>' +
+      '<button class="btn btn-quiet btn-sm" id="dr-got">Got it</button>' +
+    '</div>'
+  );
+}
+
+function renderFlashcardReviewer(notes){
+  const idx = Math.min(S.flashcardIdx || 0, notes.length - 1);
+  const card = notes[idx];
+  const flipped = S.flashcardFlipped;
+  const doneStatus = (S.flashcardDone && S.flashcardDone[idx]) || null;
+  const gotCount = (S.flashcardDone || []).filter(x => x === 'got').length;
+  const allMastered = notes.length > 0 && notes.every((_,i) => (S.flashcardDone||[])[i] === 'got');
+  return (
+    '<div>' +
+      '<div class="fc-nav">' +
+        '<button class="btn btn-quiet btn-sm" id="fc-prev" ' + (idx===0?'disabled':'') + '>&larr; Prev</button>' +
+        '<span class="fc-counter">Card ' + (idx+1) + ' of ' + notes.length + ' &bull; ' + gotCount + ' mastered</span>' +
+        '<button class="btn btn-quiet btn-sm" id="fc-next" ' + (idx===notes.length-1?'disabled':'') + '>Next &rarr;</button>' +
+      '</div>' +
+      '<div class="flashcard-wrap ' + (flipped?'flipped':'') + '" id="fc-card">' +
+        '<div class="flashcard-inner">' +
+          '<div class="flashcard-face front">' +
+            '<span class="fc-label">CONCEPT &bull; tap to flip</span>' +
+            '<span class="fc-text">' + esc(card.title) + '</span>' +
+          '</div>' +
+          '<div class="flashcard-face back">' +
+            '<span class="fc-label">EXPLANATION</span>' +
+            '<span class="fc-text">' + esc(card.body) + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="fc-actions">' +
+        '<button class="btn btn-quiet btn-sm" id="fc-review" style="' + (doneStatus==='review'?'border-color:var(--oxblood); color:var(--oxblood);':'') + '">Still learning</button>' +
+        '<button class="btn btn-quiet btn-sm" id="fc-got" style="' + (doneStatus==='got'?'border-color:var(--green); color:var(--green);':'') + '">Got it</button>' +
+      '</div>' +
+      (allMastered ? (
+        '<div style="text-align:center; margin-top:var(--sp-4);">' +
+          '<p style="font-size:13px; color:var(--ink-faint); margin-bottom:var(--sp-3);">You\'ve mastered all ' + notes.length + ' cards in this deck.</p>' +
+          '<button class="btn btn-primary btn-sm" id="fc-load-more">Load 8 new cards</button>' +
+        '</div>'
+      ) : '') +
+    '</div>'
+  );
+}
+
+const QUIZ_COUNT_OPTIONS = [5,10,15,20,25,30];
+
+function renderTabQuiz(set){
+  const sess = S.quizSession;
+  if(!sess){
+    const diff = difficultyDisplay(set);
+    const qs = set.quizSettings || { typeCounts: { ...DEFAULT_TYPE_COUNTS }, timerMode: 'none', difficultyMode: 'dynamic', computational: isComputationalSubject(set.category) };
+    const typeCounts = qs.typeCounts || DEFAULT_TYPE_COUNTS;
+    const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0) || 10;
+    const rec = recommendTimerMinutes(count);
+    return (
+      '<div>' +
+        '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Test your knowledge with instant scoring. Questions are freshly generated from your study materials each time.</p>' +
+        (diff ? '<div class="callout" style="margin-bottom:var(--sp-4); font-size:13px;"><span class="diff-badge ' + diff.cls + '">' + diff.label + '</span>&nbsp; ' + esc(diff.note) + '</div>' : '') +
+        '<div class="setup-panel">' +
+          '<div class="setup-grid">' +
+            '<div class="field">' +
+              '<label class="field-label">Difficulty</label>' +
+              '<select id="quiz-difficulty">' +
+                '<option value="dynamic" ' + ((qs.difficultyMode||'dynamic')==='dynamic'?'selected':'') + '>Dynamic (auto-adjusts to your scores)</option>' +
+                '<option value="easy" ' + (qs.difficultyMode==='easy'?'selected':'') + '>Easy</option>' +
+                '<option value="medium" ' + (qs.difficultyMode==='medium'?'selected':'') + '>Medium</option>' +
+                '<option value="hard" ' + (qs.difficultyMode==='hard'?'selected':'') + '>Hard</option>' +
+              '</select>' +
+            '</div>' +
+            renderTimerSetting('quiz', rec, qs.timerMode, qs.timerCustom) +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Questions per type</label>' +
+            '<div class="type-count-grid">' +
+              Object.keys(TYPE_LABELS).map(t => (
+                '<div class="type-count-row">' +
+                  '<label>' + TYPE_LABELS[t] + '</label>' +
+                  '<input type="number" class="quiz-type-count" data-type="' + t + '" min="0" max="30" value="' + ((qs.typeCounts && qs.typeCounts[t]) ?? DEFAULT_TYPE_COUNTS[t]) + '" />' +
+                '</div>'
+              )).join('') +
+            '</div>' +
+            '<div class="field-hint">Set a type to 0 to leave it out. This replaces the old total-count dropdown.</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="quiz-computational" ' + ((qs.computational ?? isComputationalSubject(set.category)) ? 'checked' : '') + ' /> Include computational/numeric practice problems (math, physics, chemistry, etc.)</label>' +
+          '</div>' +
+          '<button class="btn btn-primary" id="start-quiz" style="margin-top:var(--sp-2);">Start practice quiz</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+  if(sess.submitted){
+    const pct = Math.round((sess.score / sess.total) * 100);
+    const letter = letterFor(pct);
+    return (
+      '<div>' +
+        '<div class="score-block">' +
+          '<div class="score-num">' + sess.score + ' / ' + sess.total + '</div>' +
+          '<div class="score-label">SCORE &nbsp;&bull;&nbsp; ' + pct + '%</div>' +
+          '<div class="score-letter">Grade: ' + letter + '</div>' +
+        '</div>' +
+        renderWeakAreas(sess) +
+        '<div style="margin-bottom:var(--sp-5); display:flex; gap:var(--sp-3);">' +
+          '<button class="btn btn-primary" id="restart-quiz">Take another quiz</button>' +
+        '</div>' +
+        renderQuizQuestionsReview(sess) +
+      '</div>'
+    );
+  }
+  const answeredCount = Object.keys(sess.answers).filter(k => (sess.answers[k]||'').toString().trim() !== '').length;
+  return (
+    '<div>' +
+      '<div class="quiz-progress">' +
+        '<div class="quiz-progress-label"><span id="qp-text">' + answeredCount + ' of ' + sess.questions.length + ' answered</span>' +
+          (sess.timerTotalSeconds ? '<span id="timer-display" class="timer-pin">' + formatTimer(sess.timerRemaining) + '</span>' : '<span>Practice Quiz</span>') +
+        '</div>' +
+        '<div class="quiz-progress-track"><div class="quiz-progress-fill" id="qp-fill" style="width:' + Math.round(answeredCount/sess.questions.length*100) + '%;"></div></div>' +
+      '</div>' +
+      sess.questions.map((q, i) => renderQuizQuestionInput(q, i, sess.answers[i])).join('') +
+      '<div style="margin-top:var(--sp-6);">' +
+        '<button class="btn btn-primary" id="submit-quiz">Submit quiz</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderQuizQuestionInput(q, i, userAns){
+  userAns = userAns || '';
+  if(q.type === 'multiple_choice'){
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; MULTIPLE CHOICE</span>' + renderRegenerateBtn('quiz', i) + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div class="checkbox-row">' +
+          (q.options||[]).map(opt => (
+            '<label class="opt"><input type="radio" name="q_' + i + '" value="' + esc(opt) + '" ' + (userAns===opt?'checked':'') + ' /> ' + esc(opt) + '</label>'
+          )).join('') +
+        '</div>' +
+      '</div>'
+    );
+  }
+  if(q.type === 'true_false'){
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; TRUE OR FALSE</span>' + renderRegenerateBtn('quiz', i) + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div class="checkbox-row">' +
+          '<label class="opt"><input type="radio" name="q_' + i + '" value="True" ' + (userAns==='True'?'checked':'') + ' /> True</label>' +
+          '<label class="opt"><input type="radio" name="q_' + i + '" value="False" ' + (userAns==='False'?'checked':'') + ' /> False</label>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+  return (
+    '<div class="qcard">' +
+      '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + '</span>' + renderRegenerateBtn('quiz', i) + '</div>' +
+      '<div class="qtext">' + esc(q.question) + '</div>' +
+      '<input type="text" class="quiz-text-in" data-qidx="' + i + '" value="' + esc(userAns) + '" placeholder="Your answer..." />' +
+    '</div>'
+  );
+}
+
+function renderQuizQuestionsReview(sess){
+  return sess.questions.map((q, i) => {
+    const res = sess.gradedResults[i] || { correct: false, feedback: '' };
+    const tagClass = res.correct ? 'correct' : 'incorrect';
+    const tagText = res.correct ? 'CORRECT' : 'INCORRECT';
+    const explanation = res.feedback || q.explanation || '';
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; <span class="result-tag ' + tagClass + '">' + tagText + '</span>' + (q.topic ? ' &bull; ' + esc(q.topic) : '') + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div style="font-size:13.5px; margin-bottom:4px;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
+        (!res.correct ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + '</strong></div>' : '') +
+        (explanation ? '<div class="feedback-line">' + esc(explanation) + '</div>' : '') +
+        renderStepSolutionBlock('quiz', i, q.question, q.answer) +
+        (!res.correct ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="quiz" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
+      '</div>'
+    );
+  }).join('');
+}
+
+const TEST_COUNT_OPTIONS = [5,10,15,20,25,30,40];
+
+function renderTabTest(set){
+  const sess = S.testSession;
+  if(!sess){
+    const ts = set.testSettings || { count: 10, leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none', computational: isComputationalSubject(set.category) };
+    const rec = recommendTimerMinutes(ts.count || 10);
+    return (
+      '<div>' +
+        '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">Generate a formal test of short-answer and essay questions, graded by AI on meaning and substance.</p>' +
+        '<div class="setup-panel">' +
+          '<div class="setup-grid">' +
+            '<div class="field">' +
+              '<label class="field-label">Number of questions</label>' +
+              '<select id="test-count">' +
+                TEST_COUNT_OPTIONS.map(n => '<option value="' + n + '" ' + ((ts.count||10)===n?'selected':'') + '>' + n + ' questions</option>').join('') +
+                '<option value="custom" ' + (!TEST_COUNT_OPTIONS.includes(ts.count)?'selected':'') + '>Custom&hellip;</option>' +
+              '</select>' +
+              '<input type="number" id="test-count-custom" min="1" max="100" value="' + (!TEST_COUNT_OPTIONS.includes(ts.count) ? ts.count : '') + '" placeholder="e.g. 50" style="margin-top:8px; display:' + (!TEST_COUNT_OPTIONS.includes(ts.count)?'block':'none') + ';" />' +
+            '</div>' +
+            '<div class="field">' +
+              '<label class="field-label">Grading leniency</label>' +
+              '<select id="test-leniency">' +
+                '<option value="strict" ' + (ts.leniency==='strict'?'selected':'') + '>Strict &mdash; precise answers required</option>' +
+                '<option value="standard" ' + ((ts.leniency||'standard')==='standard'?'selected':'') + '>Standard &mdash; fair partial credit</option>' +
+                '<option value="lenient" ' + (ts.leniency==='lenient'?'selected':'') + '>Lenient &mdash; generous partial credit</option>' +
+              '</select>' +
+            '</div>' +
+            renderTimerSetting('test', rec, ts.timerMode, ts.timerCustom) +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="test-computational" ' + ((ts.computational ?? isComputationalSubject(set.category)) ? 'checked' : '') + ' /> Include computational/numeric practice problems (math, physics, chemistry, etc.)</label>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="test-spelling" ' + (ts.spellingLenient!==false?'checked':'') + ' /> Ignore minor spelling &amp; grammar mistakes when grading</label>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Examiner persona <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+            '<input type="text" id="test-persona" value="' + esc(ts.persona||'') + '" placeholder="e.g. a tough but fair professor, a warm and encouraging TA..." />' +
+            '<div class="field-hint">Flavors question phrasing and feedback tone. Leave blank for a neutral, professional grader.</div>' +
+          '</div>' +
+          '<button class="btn btn-primary" id="generate-test" style="margin-top:var(--sp-2);">Generate formal test</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+  if(sess.submitted){
+    const pts = sess.pointsEarned;
+    const maxPts = sess.totalPoints;
+    const pct = Math.round((pts / maxPts) * 100);
+    const letter = letterFor(pct);
+    return (
+      '<div>' +
+        '<div class="score-block">' +
+          '<div class="score-num">' + pts.toFixed(1) + ' / ' + maxPts + ' pts</div>' +
+          '<div class="score-label">TEST SCORE &nbsp;&bull;&nbsp; ' + pct + '%</div>' +
+          '<div class="score-letter">Grade: ' + letter + '</div>' +
+        '</div>' +
+        '<div style="margin-bottom:var(--sp-5); display:flex; gap:var(--sp-3);">' +
+          '<button class="btn btn-primary" id="discard-test">Set up another test</button>' +
+        '</div>' +
+        renderTestQuestionsReview(sess) +
+      '</div>'
+    );
+  }
+  return (
+    '<div>' +
+      '<div class="quiz-progress">' +
+        '<div class="quiz-progress-label"><span>Formal Test &bull; Graded on substance</span>' +
+          (sess.timerTotalSeconds ? '<span id="timer-display" class="timer-pin">' + formatTimer(sess.timerRemaining) + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+      sess.questions.map((q, i) => (
+        '<div class="qcard">' +
+          '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; ' + q.points + ' PTS &bull; ' + q.type.toUpperCase().replace('_',' ') + '</span>' + renderRegenerateBtn('test', i) + '</div>' +
+          '<div class="qtext">' + esc(q.question) + '</div>' +
+          '<textarea class="test-text-in" data-tidx="' + i + '" placeholder="Write your response...">' + esc(sess.answers[i]||'') + '</textarea>' +
+        '</div>'
+      )).join('') +
+      '<div style="margin-top:var(--sp-6);">' +
+        '<button class="btn btn-primary" id="submit-test">Submit test for grading</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderTabCustomTest(set){
+  const sess = S.customTestSession;
+  if(!sess){
+    const ts = set.customTestSettings || { typeCounts: { ...DEFAULT_TYPE_COUNTS }, leniency: 'standard', spellingLenient: true, persona: '', timerMode: 'none', computational: isComputationalSubject(set.category) };
+    const typeCounts = ts.typeCounts || DEFAULT_TYPE_COUNTS;
+    const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0) || 10;
+    const rec = recommendTimerMinutes(count);
+    return (
+      '<div>' +
+        '<p style="margin-bottom:var(--sp-4); color:var(--ink-soft)">A point-graded, AI-graded test like Formal Test (partial credit, rubric-based) &mdash; but you choose the question types, like Practice Quiz.</p>' +
+        '<div class="setup-panel">' +
+          '<div class="setup-grid">' +
+            '<div class="field">' +
+              '<label class="field-label">Grading leniency</label>' +
+              '<select id="ctest-leniency">' +
+                '<option value="strict" ' + (ts.leniency==='strict'?'selected':'') + '>Strict &mdash; precise answers required</option>' +
+                '<option value="standard" ' + ((ts.leniency||'standard')==='standard'?'selected':'') + '>Standard &mdash; fair partial credit</option>' +
+                '<option value="lenient" ' + (ts.leniency==='lenient'?'selected':'') + '>Lenient &mdash; generous partial credit</option>' +
+              '</select>' +
+            '</div>' +
+            renderTimerSetting('ctest', rec, ts.timerMode, ts.timerCustom) +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Questions per type</label>' +
+            '<div class="type-count-grid">' +
+              Object.keys(TYPE_LABELS).map(t => (
+                '<div class="type-count-row">' +
+                  '<label>' + TYPE_LABELS[t] + '</label>' +
+                  '<input type="number" class="ctest-type-count" data-type="' + t + '" min="0" max="30" value="' + ((ts.typeCounts && ts.typeCounts[t]) ?? DEFAULT_TYPE_COUNTS[t]) + '" />' +
+                '</div>'
+              )).join('') +
+            '</div>' +
+            '<div class="field-hint">Set a type to 0 to leave it out. This replaces the old total-count dropdown.</div>' +
+            '<div class="field-hint" style="margin-top:8px;">Multiple choice &amp; true/false are graded full-or-nothing (they\'re inherently binary). Short answer &amp; fill in the blank get AI partial credit, same as Formal Test.</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="ctest-computational" ' + ((ts.computational ?? isComputationalSubject(set.category)) ? 'checked' : '') + ' /> Include computational/numeric practice problems (math, physics, chemistry, etc.)</label>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;"><input type="checkbox" id="ctest-spelling" ' + (ts.spellingLenient!==false?'checked':'') + ' /> Ignore minor spelling &amp; grammar mistakes when grading</label>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label">Examiner persona <span class="muted" style="font-weight:400;">(optional)</span></label>' +
+            '<input type="text" id="ctest-persona" value="' + esc(ts.persona||'') + '" placeholder="e.g. a tough but fair professor, a warm and encouraging TA..." />' +
+          '</div>' +
+          '<button class="btn btn-primary" id="generate-ctest" style="margin-top:var(--sp-2);">Generate custom test</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+  if(sess.submitted){
+    const pts = sess.pointsEarned;
+    const maxPts = sess.totalPoints;
+    const pct = Math.round((pts / maxPts) * 100);
+    const letter = letterFor(pct);
+    return (
+      '<div>' +
+        '<div class="score-block">' +
+          '<div class="score-num">' + pts.toFixed(1) + ' / ' + maxPts + ' pts</div>' +
+          '<div class="score-label">CUSTOM TEST SCORE &nbsp;&bull;&nbsp; ' + pct + '%</div>' +
+          '<div class="score-letter">Grade: ' + letter + '</div>' +
+        '</div>' +
+        '<div style="margin-bottom:var(--sp-5); display:flex; gap:var(--sp-3);">' +
+          '<button class="btn btn-primary" id="discard-ctest">Set up another test</button>' +
+        '</div>' +
+        renderCustomTestReview(sess) +
+      '</div>'
+    );
+  }
+  const answeredCount = Object.keys(sess.answers).filter(k => (sess.answers[k]||'').toString().trim() !== '').length;
+  return (
+    '<div>' +
+      '<div class="quiz-progress">' +
+        '<div class="quiz-progress-label"><span id="ctp-text">' + answeredCount + ' of ' + sess.questions.length + ' answered</span>' +
+          (sess.timerTotalSeconds ? '<span id="timer-display" class="timer-pin">' + formatTimer(sess.timerRemaining) + '</span>' : '<span>Custom Test</span>') +
+        '</div>' +
+      '</div>' +
+      sess.questions.map((q, i) => renderCustomTestQuestionInput(q, i, sess.answers[i])).join('') +
+      '<div style="margin-top:var(--sp-6);">' +
+        '<button class="btn btn-primary" id="submit-ctest">Submit test for grading</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderCustomTestQuestionInput(q, i, userAns){
+  userAns = userAns || '';
+  const ptsLabel = '<span style="color:var(--ink-faint); font-weight:400;">&bull; ' + q.points + ' pts</span>';
+  if(q.type === 'multiple_choice'){
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; MULTIPLE CHOICE ' + ptsLabel + '</span>' + renderRegenerateBtn('customtest', i) + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div class="checkbox-row">' +
+          (q.options||[]).map(opt => (
+            '<label class="opt"><input type="radio" name="ct_' + i + '" value="' + esc(opt) + '" ' + (userAns===opt?'checked':'') + ' /> ' + esc(opt) + '</label>'
+          )).join('') +
+        '</div>' +
+      '</div>'
+    );
+  }
+  if(q.type === 'true_false'){
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; TRUE OR FALSE ' + ptsLabel + '</span>' + renderRegenerateBtn('customtest', i) + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div class="checkbox-row">' +
+          '<label class="opt"><input type="radio" name="ct_' + i + '" value="True" ' + (userAns==='True'?'checked':'') + ' /> True</label>' +
+          '<label class="opt"><input type="radio" name="ct_' + i + '" value="False" ' + (userAns==='False'?'checked':'') + ' /> False</label>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+  return (
+    '<div class="qcard">' +
+      '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + ' ' + ptsLabel + '</span>' + renderRegenerateBtn('customtest', i) + '</div>' +
+      '<div class="qtext">' + esc(q.question) + '</div>' +
+      '<input type="text" class="ctest-text-in" data-qidx="' + i + '" value="' + esc(userAns) + '" placeholder="Your answer..." />' +
+    '</div>'
+  );
+}
+
+function renderCustomTestReview(sess){
+  return sess.questions.map((q, i) => {
+    const res = sess.gradedResults[i] || { pointsEarned: 0, feedback: '' };
+    const earned = res.pointsEarned;
+    const max = q.points;
+    const partial = earned > 0 && earned < max;
+    const tagClass = earned >= max ? 'correct' : partial ? 'partial' : 'incorrect';
+    const tagText = earned.toFixed(1) + ' / ' + max + ' PTS';
+    const isObjective = q.type === 'multiple_choice' || q.type === 'true_false';
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; <span class="result-tag ' + tagClass + '">' + tagText + '</span> &bull; ' + q.type.toUpperCase().replace('_',' ') + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div style="font-size:13.5px; margin-bottom:4px;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
+        (isObjective && earned < max ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + '</strong></div>' : '') +
+        (res.feedback ? '<div class="feedback-line">' + esc(res.feedback) + '</div>' : '') +
+        (q.rubric ? ('<details class="rubric-reveal"><summary>Show grading rubric</summary><div class="rubric-body">' + esc(q.rubric) + '</div></details>') : '') +
+        renderStepSolutionBlock('customtest', i, q.question, q.rubric || q.answer) +
+        (earned < max ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="customtest" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
+      '</div>'
+    );
+  }).join('');
+}
+
+function renderTestQuestionsReview(sess){
+  return sess.questions.map((q, i) => {
+    const res = sess.gradedResults[i] || { pointsEarned: 0, feedback: '' };
+    const earned = res.pointsEarned;
+    const max = q.points;
+    const partial = earned > 0 && earned < max;
+    const tagClass = earned >= max ? 'correct' : partial ? 'partial' : 'incorrect';
+    const tagText = earned.toFixed(1) + ' / ' + max + ' PTS';
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum">QUESTION ' + (i+1) + ' &bull; <span class="result-tag ' + tagClass + '">' + tagText + '</span></div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<div style="font-size:13.5px; margin-bottom:6px; white-space:pre-wrap;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
+        (res.feedback ? '<div class="feedback-line">' + esc(res.feedback) + '</div>' : '') +
+        (q.rubric ? (
+          '<details class="rubric-reveal"><summary>Show grading rubric</summary><div class="rubric-body">' + esc(q.rubric) + '</div></details>'
+        ) : '') +
+        renderStepSolutionBlock('test', i, q.question, q.rubric) +
+        (earned < max ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="test" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
+      '</div>'
+    );
+  }).join('');
+}
+
+function getChartColors(){
+  const isDark = S.darkMode;
+  return {
+    text: isDark ? '#A0A0A0' : '#55564E',
+    grid: isDark ? '#333333' : '#C9C4B4',
+    oxblood: isDark ? '#FF6B6B' : '#7A1F2B',
+    oxbloodBg: isDark ? 'rgba(255,107,107,0.1)' : 'rgba(122,31,43,0.1)',
+    navy: isDark ? '#4DABF7' : '#2C3B4C',
+    green: isDark ? '#51CF66' : '#3F6B44',
+    amber: isDark ? '#FCC419' : '#8A6416',
+    palette: isDark
+      ? ['#FF6B6B','#4DABF7','#51CF66','#FCC419','#DA77F2','#66D9E8']
+      : ['#7A1F2B','#2C3B4C','#3F6B44','#8A6416','#6B3FA0','#1F6B78']
+  };
+}
+
+function updateQuizProgressBar(){
+  const sess = S.quizSession;
+  if(!sess || sess.submitted) return;
+  const total = sess.total;
+  const answered = Object.keys(sess.answers).filter(k => (sess.answers[k]||'').toString().trim() !== '').length;
+  const fill = document.getElementById('qp-fill');
+  const text = document.getElementById('qp-text');
+  if(fill) fill.style.width = Math.round(answered/total*100) + '%';
+  if(text) text.textContent = answered + ' of ' + total + ' answered';
+}
+
+function updateCustomTestProgressText(){
+  const sess = S.customTestSession;
+  if(!sess || sess.submitted) return;
+  const answered = Object.keys(sess.answers).filter(k => (sess.answers[k]||'').toString().trim() !== '').length;
+  const text = document.getElementById('ctp-text');
+  if(text) text.textContent = answered + ' of ' + sess.questions.length + ' answered';
+}
+
+function bindEvents(){
+  const dismissBtn = document.getElementById('dismiss-autoswitch');
+  if(dismissBtn){ dismissBtn.onclick = ()=>{ S.autoSwitchedModel = null; render(); }; }
+
+  const dismissCloneBanner = document.getElementById('dismiss-clone-banner');
+  if(dismissCloneBanner){ dismissCloneBanner.onclick = ()=>{ S.recentCloneInfo = null; render(); }; }
+
+  const fallbackCancel = document.getElementById('fallback-cancel');
+  if(fallbackCancel){
+    fallbackCancel.onclick = () => {
+      const resolveFn = S.modelFallbackModal.resolve;
+      S.modelFallbackModal = null;
+      render();
+      resolveFn(false);
+    };
+  }
+
+  const fallbackConfirm = document.getElementById('fallback-confirm');
+  if(fallbackConfirm){
+    fallbackConfirm.onclick = () => {
+      const m = S.modelFallbackModal;
+      const resolveFn = m.resolve;
+      S.modelFallbackModal = null;
+      S.loading = true;
+      S.loadingMsg = 'Retrying...';
+      render();
+      resolveFn(true);
+    };
+  }
+
+  const darkBtnOff = document.getElementById('btn-dark-mode-off');
+  if(darkBtnOff){
+    darkBtnOff.onclick = ()=>{
+      S.darkMode = false;
+      localStorage.setItem('darkMode', S.darkMode);
+      applyDarkMode();
+      render();
+    };
+  }
+  const darkBtnOn = document.getElementById('btn-dark-mode-on');
+  if(darkBtnOn){
+    darkBtnOn.onclick = ()=>{
+      S.darkMode = true;
+      localStorage.setItem('darkMode', S.darkMode);
+      applyDarkMode();
+      render();
+    };
+  }
+
+  const notifsOff = document.getElementById('btn-notifs-off');
+  if(notifsOff){
+    notifsOff.onclick = () => {
+      S.reviewNotifsEnabled = false;
+      localStorage.setItem('reviewNotifsEnabled', 'false');
+      render();
+    };
+  }
+  const notifsOn = document.getElementById('btn-notifs-on');
+  if(notifsOn){
+    notifsOn.onclick = async () => {
+      if(typeof Notification === 'undefined'){ return; }
+      if(Notification.permission === 'denied'){ render(); return; }
+      let perm = Notification.permission;
+      if(perm === 'default'){ perm = await Notification.requestPermission(); }
+      if(perm === 'granted'){
+        S.reviewNotifsEnabled = true;
+        localStorage.setItem('reviewNotifsEnabled', 'true');
+        checkAndNotifyDueCards(true);
+      }
+      render();
+    };
+  }
+  const testNotifBtn = document.getElementById('btn-test-notif');
+  if(testNotifBtn){
+    testNotifBtn.onclick = () => sendTestNotification();
+  }
+
+  const logoutBtn = document.getElementById('btn-logout');
+  if(logoutBtn){
+    logoutBtn.onclick = async () => {
+      if(S.supabaseClient){
+        await S.supabaseClient.auth.signOut();
+      }
+      S.profile = null;
+      S.route = 'landing';
+      render();
+    };
+  }
+
+  const exportJsonBtn = document.getElementById('btn-export-json');
+  if(exportJsonBtn){
+    exportJsonBtn.onclick = () => {
+      exportStudyDataToJSON();
+    };
+  }
+
+  document.querySelectorAll('.preset-key-btn-settings').forEach(el => {
+    el.onclick = (e) => {
+      const k = e.currentTarget.getAttribute('data-key');
+      const input = document.getElementById('set-apikey');
+      if(input) input.value = k;
+      S.apiKey = k;
+      saveApiKey();
+    };
+  });
+
+  document.querySelectorAll('[data-stats-toggle]').forEach(el => {
+    el.onclick = (e) => {
+      const id = e.currentTarget.getAttribute('data-stats-toggle');
+      if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
+      if(S.statsSelectedSetIds.includes(id)){
+        S.statsSelectedSetIds = S.statsSelectedSetIds.filter(x=>x!==id);
+      } else {
+        S.statsSelectedSetIds.push(id);
+      }
+      render();
+    };
+  });
+  const statsSelectAll = document.getElementById('stats-select-all');
+  if(statsSelectAll){
+    statsSelectAll.onclick = () => { S.statsSelectedSetIds = S.studySets.map(s=>s.id); render(); };
+  }
+  const statsSelectNone = document.getElementById('stats-select-none');
+  if(statsSelectNone){
+    statsSelectNone.onclick = () => { S.statsSelectedSetIds = []; render(); };
+  }
+
+  document.querySelectorAll('[data-nav]').forEach(el => {
+    el.onclick = (e) => {
+      clearActiveTimer();
+      const target = e.currentTarget.getAttribute('data-nav');
+      if(target === 'dashboard'){ S.route = 'dashboard'; S.currentSetId = null; }
+      else if(target === 'settings'){ S.route = 'settings'; }
+      else if(target === 'newset'){ S.route = 'newset'; S.newSet = null; }
+      else if(target === 'stats'){
+        S.route = 'stats';
+        if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
+      }
+      else if(target === 'examBuilder'){
+        S.route = 'examBuilder';
+        S.comprehensiveSession = null;
+        S.examBuilderSelectedIds = [];
+      }
+      else if(target === 'dailyreview'){
+        S.route = 'dailyreview';
+        S.dailyReviewQueue = computeDueCards(S.studySets).slice(0, 15);
+      }
+      else if(target === 'explore'){
+        S.route = 'explore';
+        S.exploreDetailId = null;
+        loadExploreSets();
+      }
+      render();
+    };
+  });
+
+  const replayTourBtn = document.getElementById('btn-replay-tour');
+  if(replayTourBtn){
+    replayTourBtn.onclick = () => {
+      S.route = 'dashboard';
+      S.tourActive = true;
+      S.tourStep = 0;
+      render();
+    };
+  }
+
+  const changePasswordBtn = document.getElementById('btn-change-password');
+  if(changePasswordBtn){
+    changePasswordBtn.onclick = () => {
+      const newPw = document.getElementById('change-pw-new').value;
+      const confirmPw = document.getElementById('change-pw-confirm').value;
+      changePassword(newPw, confirmPw);
+    };
+  }
+
+  const openDeleteBtn = document.getElementById('btn-open-delete');
+  if(openDeleteBtn){
+    openDeleteBtn.onclick = () => {
+      S.deleteAccountOpen = true;
+      S._deleteError = null;
+      render();
+    };
+  }
+  const cancelDeleteBtn = document.getElementById('btn-cancel-delete');
+  if(cancelDeleteBtn){
+    cancelDeleteBtn.onclick = () => {
+      S.deleteAccountOpen = false;
+      S._deleteError = null;
+      render();
+    };
+  }
+  const confirmDeleteBtn = document.getElementById('btn-confirm-delete');
+  if(confirmDeleteBtn){
+    confirmDeleteBtn.onclick = async () => {
+      const typed = document.getElementById('delete-confirm-input').value.trim();
+      if(typed !== 'DELETE'){
+        S._deleteError = 'Type DELETE exactly to confirm.';
+        render();
+        return;
+      }
+      confirmDeleteBtn.disabled = true;
+      confirmDeleteBtn.textContent = 'Deleting...';
+      await deleteAccountCascade();
+    };
+  }
+
+  const tourSkip = document.getElementById('tour-skip');
+  if(tourSkip){
+    tourSkip.onclick = () => endTourAndPersist();
+  }
+  const tourNext = document.getElementById('tour-next');
+  if(tourNext){
+    tourNext.onclick = () => {
+      S.tourStep++;
+      if(S.tourStep >= TOUR_STEPS.length){ endTourAndPersist(); }
+      else render();
+    };
+  }
+
+  const landingSignup = document.getElementById('landing-signup');
+  if(landingSignup){
+    landingSignup.onclick = () => { S.route = 'onboarding'; S.authMode = 'signup'; S._authError = null; render(); };
+  }
+  const landingSignupBottom = document.getElementById('landing-signup-bottom');
+  if(landingSignupBottom){
+    landingSignupBottom.onclick = () => { S.route = 'onboarding'; S.authMode = 'signup'; S._authError = null; render(); };
+  }
+  const landingSignupNav = document.getElementById('landing-signup-nav');
+  if(landingSignupNav){
+    landingSignupNav.onclick = () => { S.route = 'onboarding'; S.authMode = 'signup'; S._authError = null; render(); };
+  }
+  const landingLoginNav = document.getElementById('landing-login-nav');
+  if(landingLoginNav){
+    landingLoginNav.onclick = () => { S.route = 'onboarding'; S.authMode = 'login'; S._authError = null; render(); };
+  }
+  const landingLogin = document.getElementById('landing-login');
+  if(landingLogin){
+    landingLogin.onclick = () => { S.route = 'onboarding'; S.authMode = 'login'; S._authError = null; render(); };
+  }
+
+  const authToggleMode = document.getElementById('auth-toggle-mode');
+  if(authToggleMode){
+    authToggleMode.onclick = () => {
+      S.authMode = S.authMode === 'login' ? 'signup' : 'login';
+      S._authError = null;
+      render();
+    };
+  }
+
+  const authForgotLink = document.getElementById('auth-forgot-link');
+  if(authForgotLink){
+    authForgotLink.onclick = () => {
+      S.authMode = 'forgot';
+      S._authError = null;
+      S._forgotSent = false;
+      render();
+    };
+  }
+  const forgotBack = document.getElementById('forgot-back');
+  if(forgotBack){
+    forgotBack.onclick = () => {
+      S.authMode = 'login';
+      S._authError = null;
+      S._forgotSent = false;
+      render();
+    };
+  }
+  const forgotSubmit = document.getElementById('forgot-submit');
+  if(forgotSubmit){
+    forgotSubmit.onclick = async () => {
+      const emailInput = document.getElementById('forgot-email').value.trim();
+      if(!emailInput || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput)){
+        S._authError = 'Enter a valid email address.';
+        render();
+        return;
+      }
+      if(emailInput.toLowerCase().endsWith('@marginalia.app')){
+        S._authError = 'This is a generated internal address, not a real inbox — password recovery isn\'t available for it. Log in with your username instead.';
+        render();
+        return;
+      }
+      S.loading = true;
+      S.loadingMsg = 'Sending reset link...';
+      S._authError = null;
+      render();
+      try{
+        const redirectTo = window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'reset-password.html';
+        const { error } = await S.supabaseClient.auth.resetPasswordForEmail(emailInput, { redirectTo });
+        if(error) throw error;
+        S._forgotSent = true;
+      }catch(e){
+        S._authError = e.message;
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  document.querySelectorAll('[data-ob-level]').forEach(el => {
+    el.onclick = (e) => {
+      if(!S._onboardDraft) S._onboardDraft = { name: '', password: '', level: 'college' };
+      S._onboardDraft.level = e.currentTarget.getAttribute('data-ob-level');
+      render();
+    };
+  });
+
+  const authSubmit = document.getElementById('auth-submit');
+  if(authSubmit){
+    authSubmit.onclick = async () => {
+      const nameInput = document.getElementById('auth-name').value.trim();
+      const passInput = document.getElementById('auth-password').value;
+
+      if (!nameInput || !passInput) {
+        S._authError = 'Please fill in both name and password.';
+        render();
+        return;
+      }
+
+      const generatedEmail = nameInput.toLowerCase().replace(/[^a-z0-9]/g, '') + '@marginalia.app';
+      let email;
+      if(S.authMode === 'signup'){
+        const emailInput = document.getElementById('auth-email-optional')?.value.trim() || '';
+        if(!S._onboardDraft) S._onboardDraft = { name:'', password:'', level:'college' };
+        S._onboardDraft.email = emailInput;
+        if(emailInput){
+          const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput);
+          if(!validEmail){
+            S._authError = 'That email address doesn\'t look valid. Fix it or leave the field blank.';
+            render();
+            return;
+          }
+          email = emailInput;
+        } else {
+          email = generatedEmail;
+        }
+      } else {
+        // Login: if what was typed looks like an email, use it as-is (accounts signed up
+        // with a real email); otherwise fall back to the existing username@marginalia.app
+        // derivation so all existing users keep logging in exactly as before.
+        email = nameInput.includes('@') ? nameInput : generatedEmail;
+      }
+
+      S.loading = true;
+      S.loadingMsg = S.authMode === 'signup' ? 'Creating Supabase account...' : 'Logging into Supabase...';
+      render();
+
+      try {
+        if (S.authMode === 'signup') {
+          const { data: authData, error: authErr } = await S.supabaseClient.auth.signUp({ email, password: passInput });
+          if(authErr) throw authErr;
+
+          const userId = authData.user.id;
+          const newProfile = {
+            id: userId,
+            name: nameInput,
+            level: S._onboardDraft?.level || 'college',
+            grade_scale: defaultGradeScale(),
+            language: 'english',
+            api_key: '',
+            model: 'gemini-3.6-flash'
+          };
+
+const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newProfile);
+          if(profErr) throw profErr;
+
+          S.profile = {
+            name: newProfile.name,
+            level: newProfile.level,
+            gradeScale: newProfile.grade_scale,
+            language: newProfile.language
+          };
+          S.apiKey = '';
+          S.studySets = [];
+          S.route = 'dashboard';
+          maybeStartTour(userId);
+        } else {
+          const { data: authData, error: authErr } = await S.supabaseClient.auth.signInWithPassword({ email, password: passInput });
+          if(authErr) throw authErr;
+
+          const userId = authData.user.id;
+          const { data: profileData, error: profErr } = await S.supabaseClient.from('profiles').select('*').eq('id', userId).single();
+          if(profErr || !profileData) throw new Error('User profile not found in database.');
+
+          S.profile = {
+            name: profileData.name,
+            level: profileData.level,
+            gradeScale: profileData.grade_scale || defaultGradeScale(),
+            language: profileData.language || 'english'
+          };
+          S.apiKey = profileData.api_key || '';
+          S.model = profileData.model || 'gemini-3.6-flash';
+
+          await loadAll();
+        }
+      } catch(err) {
+        S._authError = err.message;
+        S.loading = false;
+        render();
+        return;
+      } finally {
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  const setLanguageSelect = document.getElementById('set-language');
+  const setLanguageOther = document.getElementById('set-language-other');
+  if(setLanguageSelect && setLanguageOther){
+    setLanguageSelect.onchange = () => {
+      setLanguageOther.style.display = setLanguageSelect.value === 'other' ? 'block' : 'none';
+    };
+  }
+
+  const settingsSave = document.getElementById('settings-save');
+  if(settingsSave){
+    settingsSave.onclick = async () => {
+      const name = document.getElementById('set-name').value.trim();
+      const model = document.getElementById('set-model').value;
+      const langSelect = document.getElementById('set-language').value;
+      const langOther = document.getElementById('set-language-other')?.value.trim();
+      const language = langSelect === 'other' && langOther ? langOther.toLowerCase() : langSelect;
+      const apiKey = document.getElementById('set-apikey').value.trim();
+
+      if(!name){ alert('Name cannot be blank.'); return; }
+      S.profile.name = name;
+      S.model = model;
+      S.profile.language = language;
+      S.apiKey = apiKey;
+
+      await saveProfile();
+      alert('Settings saved successfully.');
+      S.route = 'dashboard';
+      render();
+    };
+  }
+
+  document.querySelectorAll('[data-set-level]').forEach(el => {
+    el.onclick = (e) => {
+      S.profile.level = e.currentTarget.getAttribute('data-set-level');
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-scale-preset]').forEach(el => {
+    el.onclick = (e) => {
+      const p = e.currentTarget.getAttribute('data-scale-preset');
+      if(!S.profile.gradeScale) S.profile.gradeScale = defaultGradeScale();
+      if(p === 'custom'){
+        S.profile.gradeScale.mode = 'custom';
+        S.profile.gradeScale.preset = 'standard';
+        if(!S.profile.gradeScale.custom) S.profile.gradeScale.custom = PRESET_SCALES.standard.slice();
+      } else {
+        S.profile.gradeScale.mode = 'preset';
+        S.profile.gradeScale.preset = p;
+      }
+      render();
+    };
+  });
+
+  const addScaleRow = document.getElementById('scale-add-row');
+  if(addScaleRow){
+    addScaleRow.onclick = () => {
+      if(!S.profile.gradeScale.custom) S.profile.gradeScale.custom = [];
+      S.profile.gradeScale.custom.push({ label: 'X', min: 50 });
+      render();
+    };
+  }
+  document.querySelectorAll('.scale-label-in').forEach(el => {
+    el.onchange = (e) => {
+      const idx = parseInt(e.target.getAttribute('data-idx'));
+      S.profile.gradeScale.custom[idx].label = e.target.value;
+    };
+  });
+  document.querySelectorAll('.scale-min-in').forEach(el => {
+    el.onchange = (e) => {
+      const idx = parseInt(e.target.getAttribute('data-idx'));
+      S.profile.gradeScale.custom[idx].min = parseFloat(e.target.value) || 0;
+    };
+  });
+  document.querySelectorAll('.scale-del').forEach(el => {
+    el.onclick = (e) => {
+      const idx = parseInt(e.currentTarget.getAttribute('data-idx'));
+      S.profile.gradeScale.custom.splice(idx, 1);
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-open-set]').forEach(el => {
+    el.onclick = (e) => {
+      clearActiveTimer();
+      S.currentSetId = e.currentTarget.getAttribute('data-open-set');
+      S.currentTab = 'notes';
+      S.quizSession = null;
+      S.testSession = null;
+      S.customTestSession = null;
+      S.flashcardIdx = 0;
+      S.flashcardFlipped = false;
+      S.flashcardDone = [];
+      S.route = 'set';
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-delete-set]').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const id = e.currentTarget.getAttribute('data-delete-set');
+      if(confirm('Are you sure you want to delete this study set?')){
+        await deleteStudySet(id);
+        render();
+      }
+    };
+  });
+
+  const dashSearch = document.getElementById('dash-search');
+  if(dashSearch){
+    dashSearch.oninput = (e) => {
+      S.dashboardSearch = e.target.value;
+      render();
+    };
+    // keep focus + cursor position after the re-render this triggers
+    const val = dashSearch.value;
+    dashSearch.focus();
+    dashSearch.setSelectionRange(val.length, val.length);
+  }
+
+  const exploreSearch = document.getElementById('explore-search');
+  if(exploreSearch){
+    exploreSearch.oninput = (e) => {
+      S.exploreSearch = e.target.value;
+      render();
+    };
+    const val = exploreSearch.value;
+    exploreSearch.focus();
+    exploreSearch.setSelectionRange(val.length, val.length);
+  }
+  document.querySelectorAll('[data-view-explore]').forEach(el => {
+    el.onclick = (e) => {
+      S.exploreDetailId = e.currentTarget.getAttribute('data-view-explore');
+      render();
+    };
+  });
+  const exploreBack = document.getElementById('explore-back');
+  if(exploreBack){
+    exploreBack.onclick = () => { S.exploreDetailId = null; render(); };
+  }
+  document.querySelectorAll('[data-clone-explore]').forEach(el => {
+    el.onclick = (e) => {
+      const pub = S.exploreSets.find(p => p.id === e.currentTarget.getAttribute('data-clone-explore'));
+      if(pub) cloneExploreSet(pub);
+    };
+  });
+
+  document.querySelectorAll('[data-explore-tab]').forEach(el => {
+    el.onclick = (e) => {
+      S.exploreTab = e.currentTarget.getAttribute('data-explore-tab');
+      S.exploreDetailId = null;
+      if(S.exploreTab === 'myuploads') loadMyUploads();
+      else render();
+    };
+  });
+  document.querySelectorAll('[data-unpublish]').forEach(el => {
+    el.onclick = (e) => unpublishSet(e.currentTarget.getAttribute('data-unpublish'));
+  });
+  document.querySelectorAll('[data-edit-upload]').forEach(el => {
+    el.onclick = (e) => {
+      S.editingPublishedId = e.currentTarget.getAttribute('data-edit-upload');
+      render();
+    };
+  });
+  document.querySelectorAll('[data-cancel-edit]').forEach(el => {
+    el.onclick = () => { S.editingPublishedId = null; render(); };
+  });
+  document.querySelectorAll('[data-edit-copyable]').forEach(el => {
+    el.onclick = (e) => {
+      const pubId = e.currentTarget.getAttribute('data-edit-copyable');
+      const val = e.currentTarget.getAttribute('data-val') === 'true';
+      const item = S.myUploads.find(p => p.id === pubId);
+      if(item){ item.is_copyable = val; render(); }
+    };
+  });
+  document.querySelectorAll('[data-save-edit]').forEach(el => {
+    el.onclick = (e) => {
+      const pubId = e.currentTarget.getAttribute('data-save-edit');
+      const item = S.myUploads.find(p => p.id === pubId);
+      if(!item) return;
+      const descInput = document.getElementById('edit-desc-' + pubId);
+      const anonInput = document.getElementById('edit-anon-' + pubId);
+      updatePublishedSettings(pubId, {
+        is_copyable: item.is_copyable,
+        description: descInput ? descInput.value.trim().slice(0,300) : '',
+        is_anonymous: anonInput ? anonInput.checked : false
+      });
+    };
+  });
+
+  const togglePublishPanel = document.getElementById('toggle-publish-panel');
+  if(togglePublishPanel){
+    togglePublishPanel.onclick = () => {
+      S.publishPanelOpen = !S.publishPanelOpen;
+      render();
+    };
+  }
+  const publishCopyableOn = document.getElementById('publish-copyable-on');
+  if(publishCopyableOn){
+    publishCopyableOn.onclick = () => { S.publishCopyable = true; render(); };
+  }
+  const publishCopyableOff = document.getElementById('publish-copyable-off');
+  if(publishCopyableOff){
+    publishCopyableOff.onclick = () => { S.publishCopyable = false; render(); };
+  }
+  const cancelPublish = document.getElementById('cancel-publish');
+  if(cancelPublish){
+    cancelPublish.onclick = () => { S.publishPanelOpen = false; render(); };
+  }
+  const confirmPublish = document.getElementById('confirm-publish');
+  if(confirmPublish){
+    confirmPublish.onclick = async () => {
+      const set = S.studySets.find(s => s.id === S.currentSetId);
+      if(!set) return;
+      const descInput = document.getElementById('publish-description');
+      const anonInput = document.getElementById('publish-anonymous');
+      S.publishDescription = descInput ? descInput.value.trim() : '';
+      S.publishAnonymous = anonInput ? anonInput.checked : false;
+      confirmPublish.disabled = true;
+      confirmPublish.textContent = 'Publishing...';
+      await publishSetToExplore(set, S.publishCopyable !== false, S.publishDescription, S.publishAnonymous);
+    };
+  }
+
+  document.querySelectorAll('[data-tag-filter]').forEach(el => {
+    el.onclick = (e) => {
+      const tag = e.currentTarget.getAttribute('data-tag-filter');
+      if(!S.dashboardActiveTags) S.dashboardActiveTags = [];
+      if(S.dashboardActiveTags.includes(tag)){
+        S.dashboardActiveTags = S.dashboardActiveTags.filter(t => t !== tag);
+      } else {
+        S.dashboardActiveTags.push(tag);
+      }
+      render();
+    };
+  });
+  const dashClearTags = document.getElementById('dash-clear-tags');
+  if(dashClearTags){
+    dashClearTags.onclick = () => { S.dashboardActiveTags = []; render(); };
+  }
+
+  document.querySelectorAll('[data-group-by]').forEach(el => {
+    el.onclick = (e) => {
+      S.dashboardGroupBy = e.currentTarget.getAttribute('data-group-by');
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-edit-tags]').forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      S.editingTagsSetId = e.currentTarget.getAttribute('data-edit-tags');
+      render();
+      const input = document.getElementById('tag-edit-input-' + S.editingTagsSetId);
+      if(input){ input.focus(); input.select(); }
+    };
+  });
+  document.querySelectorAll('[data-save-tags]').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const setId = e.currentTarget.getAttribute('data-save-tags');
+      const set = S.studySets.find(s => s.id === setId);
+      const input = document.getElementById('tag-edit-input-' + setId);
+      const tags = input.value.split(',').map(t => t.trim()).filter(Boolean).slice(0, 15);
+      if(set) await persistSetSettings(set, { tags });
+      S.editingTagsSetId = null;
+      render();
+    };
+  });
+  document.querySelectorAll('[data-stop-nav]').forEach(el => {
+    el.onclick = (e) => e.stopPropagation();
+  });
+
+  const dropzone = document.getElementById('ns-dropzone');
+  const fileinput = document.getElementById('ns-fileinput');
+  if(dropzone && fileinput){
+    dropzone.onclick = () => fileinput.click();
+    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add('drag'); };
+    dropzone.ondragleave = () => dropzone.classList.remove('drag');
+    dropzone.ondrop = async (e) => {
+      e.preventDefault(); dropzone.classList.remove('drag');
+      const files = Array.from(e.dataTransfer.files);
+      for(const f of files){
+        const part = await fileToInlinePart(f);
+        S.newSet.files.push({ name: f.name, inline_data: part.inline_data });
+      }
+      render();
+    };
+    fileinput.onchange = async (e) => {
+      const files = Array.from(e.target.files);
+      for(const f of files){
+        const part = await fileToInlinePart(f);
+        S.newSet.files.push({ name: f.name, inline_data: part.inline_data });
+      }
+      render();
+    };
+  }
+
+  document.querySelectorAll('[data-remove-file]').forEach(el => {
+    el.onclick = (e) => {
+      const idx = parseInt(e.currentTarget.getAttribute('data-remove-file'));
+      S.newSet.files.splice(idx, 1);
+      render();
+    };
+  });
+
+  const nsGenerate = document.getElementById('ns-generate');
+  if(nsGenerate){
+    nsGenerate.onclick = async () => {
+      const title = document.getElementById('ns-title').value.trim();
+      const notesText = document.getElementById('ns-notes').value.trim();
+      const level = document.getElementById('ns-level').value;
+      // Fixed sensible defaults: real quiz length/types/difficulty are chosen
+      // fresh every time on the Practice Quiz tab, so this initial batch is
+      // just a starting point (and what powers the dashboard's Qs count).
+      const count = 10;
+      const types = ['multiple_choice','true_false','short_answer','fill_blank'];
+
+      if(!title){ alert('Please enter a set title.'); return; }
+      if(!notesText && (!S.newSet.files || S.newSet.files.length === 0)){ alert('Please provide pasted notes or attach files.'); return; }
+
+      S.loading = true;
+      S.loadingMsg = 'Reading materials & generating study set...';
+      render();
+
+      try{
+        const result = await generateStudyMaterials({
+          title,
+          notesText,
+          files: S.newSet.files ? S.newSet.files.map(f=>({ inline_data: f.inline_data })) : [],
+          level,
+          count,
+          types
+        });
+
+        const newSet = {
+          id: uid(),
+          title,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          notesSummary: result.notesSummary,
+          category: result.category || 'General',
+          stickyNotes: (result.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
+          quiz: result.quiz,
+          history: []
+        };
+
+        await saveStudySet(newSet);
+        S.currentSetId = newSet.id;
+        S.currentTab = 'notes';
+        S.route = 'set';
+        if(!S.statsSelectedSetIds) S.statsSelectedSetIds = [];
+        S.statsSelectedSetIds.push(newSet.id);
+
+        if(S._insufficientMaterialWarning){
+          setTimeout(() => alert('Heads up: your source notes looked thin for a set of ' + count + ' questions. The AI did its best, but consider pasting more detail or attaching more pages for stronger, more specific questions.'), 50);
+        }
+      }catch(e){
+        alert('Generation failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  document.querySelectorAll('[data-set-tab]').forEach(el => {
+    el.onclick = (e) => {
+      clearActiveTimer();
+      S.currentTab = e.currentTarget.getAttribute('data-set-tab');
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-ask-tutor]').forEach(el => {
+    el.onclick = (e) => {
+      const source = e.currentTarget.getAttribute('data-ask-tutor');
+      const idx = parseInt(e.currentTarget.getAttribute('data-tutor-idx'));
+      openTutorDrawer(source, idx);
+    };
+  });
+  document.querySelectorAll('[data-toggle-steps]').forEach(el => {
+    el.onclick = (e) => {
+      const source = e.currentTarget.getAttribute('data-toggle-steps');
+      const idx = parseInt(e.currentTarget.getAttribute('data-tutor-idx'));
+      const sess = source === 'quiz' ? S.quizSession : source === 'customtest' ? S.customTestSession : S.testSession;
+      if(!sess) return;
+      const q = sess.questions[idx];
+      const answerOrRubric = source === 'quiz' ? q.answer : (q.rubric || q.answer);
+      toggleStepSolution(source, idx, q.question, answerOrRubric);
+    };
+  });
+  document.querySelectorAll('[data-regen-question]').forEach(el => {
+    el.onclick = (e) => {
+      const source = e.currentTarget.getAttribute('data-regen-question');
+      const idx = parseInt(e.currentTarget.getAttribute('data-tutor-idx'));
+      regenerateQuestion(source, idx);
+    };
+  });
+  const tutorClose = document.getElementById('tutor-close');
+  if(tutorClose) tutorClose.onclick = closeTutorDrawer;
+  const tutorScrim = document.getElementById('tutor-scrim');
+  if(tutorScrim) tutorScrim.onclick = closeTutorDrawer;
+  document.querySelectorAll('[data-tutor-quick]').forEach(el => {
+    el.onclick = (e) => sendTutorMessage(e.currentTarget.getAttribute('data-tutor-quick'));
+  });
+  const tutorSend = document.getElementById('tutor-send');
+  const tutorInput = document.getElementById('tutor-input');
+  if(tutorSend && tutorInput){
+    const doSend = () => {
+      const val = tutorInput.value;
+      if(!val.trim()) return;
+      tutorInput.value = '';
+      sendTutorMessage(val);
+    };
+    tutorSend.onclick = doSend;
+    tutorInput.onkeydown = (e) => { if(e.key === 'Enter') doSend(); };
+  }
+
+  const exportPdfBtn = document.querySelector('[data-export-pdf]');
+  if(exportPdfBtn){
+    exportPdfBtn.onclick = () => {
+      const setId = exportPdfBtn.getAttribute('data-export-pdf');
+      const set = S.studySets.find(s => s.id === setId);
+      if(set) exportSetToPdf(set);
+    };
+  }
+
+  const toggleActiveRecall = document.getElementById('toggle-active-recall');
+  if(toggleActiveRecall){
+    toggleActiveRecall.onclick = () => {
+      S.activeRecallMode = !S.activeRecallMode;
+      render();
+    };
+  }
+  document.querySelectorAll('.cloze-blank').forEach(el => {
+    el.onclick = (e) => {
+      const target = e.currentTarget;
+      if(target.classList.contains('revealed')) return;
+      target.classList.add('revealed');
+      target.textContent = target.getAttribute('data-answer');
+    };
+  });
+
+  document.querySelectorAll('[data-notes-mode]').forEach(el => {
+    el.onclick = (e) => {
+      S.notesMode = e.currentTarget.getAttribute('data-notes-mode');
+      S.flashcardIdx = 0;
+      S.flashcardFlipped = false;
+      render();
+    };
+  });
+
+  const fcCard = document.getElementById('fc-card');
+  if(fcCard){
+    fcCard.onclick = () => {
+      S.flashcardFlipped = !S.flashcardFlipped;
+      render();
+    };
+  }
+  const fcPrev = document.getElementById('fc-prev');
+  if(fcPrev){
+    fcPrev.onclick = () => {
+      S.flashcardIdx = Math.max(0, (S.flashcardIdx||0) - 1);
+      S.flashcardFlipped = false;
+      render();
+    };
+  }
+  const fcNext = document.getElementById('fc-next');
+  if(fcNext){
+    fcNext.onclick = () => {
+      S.flashcardIdx = (S.flashcardIdx||0) + 1;
+      S.flashcardFlipped = false;
+      render();
+    };
+  }
+  const fcGot = document.getElementById('fc-got');
+  if(fcGot){
+    fcGot.onclick = () => {
+      if(!S.flashcardDone) S.flashcardDone = [];
+      S.flashcardDone[S.flashcardIdx||0] = 'got';
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      if(set){
+        const note = set.stickyNotes[S.flashcardIdx||0];
+        if(note){ gradeCardReview(note, true); persistCardReview(set.id, note); }
+        if((S.flashcardIdx||0) < set.stickyNotes.length - 1){
+          S.flashcardIdx = (S.flashcardIdx||0) + 1;
+          S.flashcardFlipped = false;
+        }
+      }
+      render();
+    };
+  }
+  const fcReview = document.getElementById('fc-review');
+  if(fcReview){
+    fcReview.onclick = () => {
+      if(!S.flashcardDone) S.flashcardDone = [];
+      S.flashcardDone[S.flashcardIdx||0] = 'review';
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      if(set){
+        const note = set.stickyNotes[S.flashcardIdx||0];
+        if(note){ gradeCardReview(note, false); persistCardReview(set.id, note); }
+        if((S.flashcardIdx||0) < set.stickyNotes.length - 1){
+          S.flashcardIdx = (S.flashcardIdx||0) + 1;
+          S.flashcardFlipped = false;
+        }
+      }
+      render();
+    };
+  }
+
+  const drCard = document.getElementById('dr-card');
+  if(drCard){
+    drCard.onclick = () => { S.dailyReviewFlipped = !S.dailyReviewFlipped; render(); };
+  }
+  const drGot = document.getElementById('dr-got');
+  if(drGot){ drGot.onclick = () => handleDailyReviewGrade(true); }
+  const drReview = document.getElementById('dr-review');
+  if(drReview){ drReview.onclick = () => handleDailyReviewGrade(false); }
+
+  ['quiz-timer-mode','test-timer-mode','ctest-timer-mode'].forEach(id => {
+    const sel = document.getElementById(id);
+    if(sel){
+      sel.onchange = () => {
+        const prefix = id.replace('-timer-mode','');
+        const customInput = document.getElementById(prefix + '-timer-custom');
+        if(customInput) customInput.style.display = sel.value === 'custom' ? 'block' : 'none';
+      };
+    }
+  });
+  const testCountSel = document.getElementById('test-count');
+  if(testCountSel){
+    testCountSel.onchange = () => {
+      const customInput = document.getElementById('test-count-custom');
+      if(customInput) customInput.style.display = testCountSel.value === 'custom' ? 'block' : 'none';
+    };
+  }
+  const ctestCountSel = document.getElementById('ctest-count');
+  if(ctestCountSel){
+    ctestCountSel.onchange = () => {
+      const customInput = document.getElementById('ctest-count-custom');
+      if(customInput) customInput.style.display = ctestCountSel.value === 'custom' ? 'block' : 'none';
+    };
+  }
+
+  const fcLoadMore = document.getElementById('fc-load-more');
+  if(fcLoadMore){
+    fcLoadMore.onclick = async () => {
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      S.loading = true;
+      S.loadingMsg = 'Reading materials & generating study set...';
+      render();
+      try{
+        const existingTitles = set.stickyNotes.map(sn=>sn.title);
+        const more = await generateMoreStickyNotes({
+          title: set.title,
+          notesSummary: set.notesSummary,
+          level: S.profile.level,
+          existingTitles,
+          count: 8
+        });
+        const startIdx = set.stickyNotes.length;
+        set.stickyNotes = set.stickyNotes.concat(more.map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })));
+        await saveStudySet(set);
+        S.flashcardIdx = startIdx;
+        S.flashcardFlipped = false;
+      }catch(e){
+        alert('Could not load more cards: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  const startQuizBtn = document.getElementById('start-quiz');
+  if(startQuizBtn){
+    startQuizBtn.onclick = async () => {
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      const typeCounts = {};
+      document.querySelectorAll('.quiz-type-count').forEach(el => {
+        const n = parseInt(el.value) || 0;
+        if(n > 0) typeCounts[el.getAttribute('data-type')] = n;
+      });
+      if(Object.keys(typeCounts).length === 0){ alert('Set at least one question type above 0.'); return; }
+      const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0);
+      const computational = document.getElementById('quiz-computational').checked;
+      const difficultyMode = document.getElementById('quiz-difficulty').value;
+      const rec = recommendTimerMinutes(count);
+      const timerMode = document.getElementById('quiz-timer-mode').value;
+      const timerCustomEl = document.getElementById('quiz-timer-custom');
+      const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
+      const timerMinutes = resolveTimerMinutes('quiz', rec);
+
+      const quizSettings = { typeCounts, timerMode, timerCustom, difficultyMode, computational };
+      await persistSetSettings(set, { quizSettings });
+
+      S.loading = true;
+      S.loadingMsg = 'Reading materials & generating study set...';
+      render();
+      try{
+        const recentScores = getRecentScores(set, 3);
+        const questions = await generateQuizOnly({
+          title: set.title,
+          notesSummary: set.notesSummary,
+          level: S.profile.level,
+          typeCounts, recentScores, difficultyMode, computational
+        });
+        S.quizSession = {
+          questions,
+          answers: {},
+          submitted: false,
+          score: 0,
+          total: questions.length,
+          gradedResults: [],
+          timerTotalSeconds: timerMinutes ? timerMinutes*60 : null,
+          timerRemaining: timerMinutes ? timerMinutes*60 : null
+        };
+        if(timerMinutes){
+          startSessionTimer(S.quizSession, () => {
+            const btn = document.getElementById('submit-quiz');
+            if(btn) btn.click();
+          });
+        }
+      }catch(e){
+        alert('Could not generate quiz: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  const restartQuizBtn = document.getElementById('restart-quiz');
+  if(restartQuizBtn){
+    restartQuizBtn.onclick = () => {
+      clearActiveTimer();
+      S.quizSession = null;
+      render();
+    };
+  }
+
+  document.querySelectorAll('input[name^="q_"]').forEach(el => {
+    el.onchange = (e) => {
+      const name = e.target.name;
+      const qidx = parseInt(name.replace('q_',''));
+      if(S.quizSession) S.quizSession.answers[qidx] = e.target.value;
+      updateQuizProgressBar();
+    };
+  });
+
+  document.querySelectorAll('.quiz-text-in').forEach(el => {
+    el.oninput = (e) => {
+      const qidx = parseInt(e.target.getAttribute('data-qidx'));
+      if(S.quizSession) S.quizSession.answers[qidx] = e.target.value;
+      updateQuizProgressBar();
+    };
+  });
+
+  const submitQuizBtn = document.getElementById('submit-quiz');
+  if(submitQuizBtn){
+    submitQuizBtn.onclick = async () => {
+      const sess = S.quizSession;
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      clearActiveTimer();
+      
+      const shortItems = [];
+      sess.questions.forEach((q, i) => {
+        if(q.type === 'short_answer' || q.type === 'fill_blank' || q.type === 'true_false'){
+          shortItems.push({ question: q.question, expected: q.answer, userAnswer: sess.answers[i] });
+        }
+      });
+
+      S.loading = true;
+      S.loadingMsg = 'Grading quiz answers...';
+      render();
+
+      try{
+        let gradedShort = [];
+        if(shortItems.length > 0){
+          gradedShort = await gradeShortAnswers(shortItems, S.profile.level);
+        }
+
+        let score = 0;
+        const gradedResults = [];
+        let shortCursor = 0;
+
+        sess.questions.forEach((q, i) => {
+          const userAns = (sess.answers[i] || '').trim();
+          if(q.type === 'short_answer' || q.type === 'fill_blank' || q.type === 'true_false'){
+            const g = gradedShort[shortCursor++] || { correct: false, feedback: '' };
+            gradedResults[i] = g;
+            if(g.correct) score++;
+          } else {
+            const correct = userAns.toLowerCase() === q.answer.toLowerCase();
+            gradedResults[i] = { correct, feedback: q.explanation || (correct ? 'Correct.' : 'Expected: ' + q.answer) };
+            if(correct) score++;
+          }
+        });
+
+        sess.score = score;
+        sess.submitted = true;
+        sess.gradedResults = gradedResults;
+
+        const pct = Math.round((score / sess.total) * 100);
+        const letter = letterFor(pct);
+        if(!set.history) set.history = [];
+        const newHist = {
+          type: 'quiz',
+          timestamp: Date.now(),
+          scoreText: score + '/' + sess.total,
+          pct,
+          letter
+        };
+        set.history.push(newHist);
+
+        if(S.supabaseClient){
+          const { data: { session } } = await S.supabaseClient.auth.getSession();
+          if(session){
+            await S.supabaseClient.from('history').insert({
+              study_set_id: set.id,
+              user_id: session.user.id,
+              type: newHist.type,
+              score_text: newHist.scoreText,
+              pct: newHist.pct,
+              letter: newHist.letter,
+              timestamp: newHist.timestamp
+            });
+          }
+        }
+
+        await saveStudySet(set);
+      }catch(e){
+        alert('Grading failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  document.querySelectorAll('[data-exam-toggle]').forEach(el => {
+    el.onclick = (e) => {
+      const id = e.currentTarget.getAttribute('data-exam-toggle');
+      if(!S.examBuilderSelectedIds) S.examBuilderSelectedIds = [];
+      if(S.examBuilderSelectedIds.includes(id)){
+        S.examBuilderSelectedIds = S.examBuilderSelectedIds.filter(x=>x!==id);
+      } else {
+        if(S.examBuilderSelectedIds.length >= 5){ alert('You can select up to 5 study sets.'); return; }
+        S.examBuilderSelectedIds.push(id);
+      }
+      render();
+    };
+  });
+
+  const examTimerModeSel = document.getElementById('exam-timer-mode');
+  if(examTimerModeSel){
+    examTimerModeSel.onchange = () => {
+      const customInput = document.getElementById('exam-timer-custom');
+      if(customInput) customInput.style.display = examTimerModeSel.value === 'custom' ? 'block' : 'none';
+    };
+  }
+
+  const buildExamBtn = document.getElementById('build-exam');
+  if(buildExamBtn){
+    buildExamBtn.onclick = async () => {
+      const ids = S.examBuilderSelectedIds || [];
+      if(ids.length < 2){ alert('Choose at least 2 study sets.'); return; }
+      const sets = S.studySets.filter(s => ids.includes(s.id));
+      const count = parseInt(document.getElementById('exam-count').value);
+      const leniency = document.getElementById('exam-leniency').value;
+      const spellingLenient = document.getElementById('exam-spelling').checked;
+      const persona = document.getElementById('exam-persona').value.trim();
+      const rec = recommendTimerMinutes(count);
+      const timerMode = document.getElementById('exam-timer-mode').value;
+      const timerCustomEl = document.getElementById('exam-timer-custom');
+      const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
+      const timerMinutes = resolveTimerMinutes('exam', rec);
+
+      S.examBuilderSettings = { count, leniency, spellingLenient, persona, timerMode, timerCustom };
+
+      S.loading = true;
+      S.loadingMsg = 'Generating formal test...';
+      render();
+      try{
+        const res = await generateComprehensiveTest({ sets, level: S.profile.level, count, leniency, persona });
+        const totalPoints = res.questions.reduce((acc,q)=>acc+q.points, 0);
+        S.comprehensiveSession = {
+          questions: res.questions,
+          totalPoints,
+          answers: {},
+          submitted: false,
+          pointsEarned: 0,
+          gradedResults: [],
+          leniency, spellingLenient, persona,
+          sourceSetIds: ids,
+          sourceTitles: sets.map(s=>s.title),
+          timerTotalSeconds: timerMinutes ? timerMinutes*60 : null,
+          timerRemaining: timerMinutes ? timerMinutes*60 : null
+        };
+        if(timerMinutes){
+          startSessionTimer(S.comprehensiveSession, () => {
+            const btn = document.getElementById('submit-exam');
+            if(btn) btn.click();
+          });
+        }
+      }catch(e){
+        alert('Exam generation failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  document.querySelectorAll('.exam-text-in').forEach(el => {
+    el.oninput = (e) => {
+      const idx = parseInt(e.target.getAttribute('data-eidx'));
+      if(S.comprehensiveSession) S.comprehensiveSession.answers[idx] = e.target.value;
+    };
+  });
+
+  const submitExamBtn = document.getElementById('submit-exam');
+  if(submitExamBtn){
+    submitExamBtn.onclick = async () => {
+      const sess = S.comprehensiveSession;
+      clearActiveTimer();
+      const items = sess.questions.map((q, i) => ({ question: q.question, rubric: q.rubric, points: q.points, userAnswer: sess.answers[i] }));
+      S.loading = true;
+      S.loadingMsg = 'Grading test responses...';
+      render();
+      try{
+        const graded = await gradeTest(items, { level: S.profile.level, leniency: sess.leniency, spellingLenient: sess.spellingLenient, persona: sess.persona });
+        let pointsEarned = 0;
+        sess.gradedResults = graded.map((g, i) => {
+          const capped = Math.max(0, Math.min(g.pointsEarned, sess.questions[i].points));
+          pointsEarned += capped;
+          return { pointsEarned: capped, feedback: g.feedback };
+        });
+        sess.pointsEarned = pointsEarned;
+        sess.submitted = true;
+
+        const pct = Math.round((pointsEarned / sess.totalPoints) * 100);
+        const letter = letterFor(pct);
+        const historyEntry = {
+          type: 'comprehensive',
+          timestamp: Date.now(),
+          pct,
+          letter,
+          scoreText: pointsEarned.toFixed(1) + '/' + sess.totalPoints + ' pts'
+        };
+        for(const setId of sess.sourceSetIds){
+          const set = S.studySets.find(s=>s.id===setId);
+          if(!set) continue;
+          if(!set.history) set.history = [];
+          set.history.push(historyEntry);
+          if(S.supabaseClient){
+            try{
+              const { data: { session: authSession } } = await S.supabaseClient.auth.getSession();
+              if(authSession){
+                await S.supabaseClient.from('history').insert({
+                  study_set_id: setId,
+                  user_id: authSession.user.id,
+                  type: historyEntry.type,
+                  pct: historyEntry.pct,
+                  letter: historyEntry.letter,
+                  score_text: historyEntry.scoreText,
+                  timestamp: historyEntry.timestamp
+                });
+              }
+            }catch(err){ console.error('Failed to save comprehensive exam history', err); }
+          }
+        }
+      }catch(e){
+        alert('Grading failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  const examNewBtn = document.getElementById('exam-new');
+  if(examNewBtn){
+    examNewBtn.onclick = () => {
+      S.comprehensiveSession = null;
+      S.examBuilderSelectedIds = [];
+      render();
+    };
+  }
+
+  const generateTestBtn = document.getElementById('generate-test');
+  if(generateTestBtn){
+    generateTestBtn.onclick = async () => {
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      const countSelVal = document.getElementById('test-count').value;
+      const count = countSelVal === 'custom' ? (parseInt(document.getElementById('test-count-custom').value) || 10) : parseInt(countSelVal);
+      const leniency = document.getElementById('test-leniency').value;
+      const spellingLenient = document.getElementById('test-spelling').checked;
+      const persona = document.getElementById('test-persona').value.trim();
+      const computational = document.getElementById('test-computational').checked;
+      const rec = recommendTimerMinutes(count);
+      const timerMode = document.getElementById('test-timer-mode').value;
+      const timerCustomEl = document.getElementById('test-timer-custom');
+      const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
+      const timerMinutes = resolveTimerMinutes('test', rec);
+
+      const testSettings = { count, leniency, spellingLenient, persona, timerMode, timerCustom, computational };
+      await persistSetSettings(set, { testSettings });
+
+      S.loading = true;
+      S.loadingMsg = 'Generating formal test...';
+      render();
+
+      try{
+        const res = await generateTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, count, leniency, persona, computational });
+        const totalPoints = res.questions.reduce((acc,q)=>acc+q.points, 0);
+        S.testSession = {
+          questions: res.questions,
+          totalPoints,
+          answers: {},
+          submitted: false,
+          pointsEarned: 0,
+          gradedResults: [],
+          leniency, spellingLenient, persona,
+          timerTotalSeconds: timerMinutes ? timerMinutes*60 : null,
+          timerRemaining: timerMinutes ? timerMinutes*60 : null
+        };
+        if(timerMinutes){
+          startSessionTimer(S.testSession, () => {
+            const btn = document.getElementById('submit-test');
+            if(btn) btn.click();
+          });
+        }
+      }catch(e){
+        alert('Test generation failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  const discardTestBtn = document.getElementById('discard-test');
+  if(discardTestBtn){
+    discardTestBtn.onclick = () => {
+      clearActiveTimer();
+      S.testSession = null;
+      render();
+    };
+  }
+
+  document.querySelectorAll('.test-text-in').forEach(el => {
+    el.oninput = (e) => {
+      const tidx = parseInt(e.target.getAttribute('data-tidx'));
+      if(S.testSession) S.testSession.answers[tidx] = e.target.value;
+    };
+  });
+
+  const submitTestBtn = document.getElementById('submit-test');
+  if(submitTestBtn){
+    submitTestBtn.onclick = async () => {
+      const sess = S.testSession;
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      clearActiveTimer();
+
+      const items = sess.questions.map((q, i) => ({
+        question: q.question,
+        rubric: q.rubric,
+        points: q.points,
+        userAnswer: sess.answers[i]
+      }));
+
+      S.loading = true;
+      S.loadingMsg = 'Grading test responses...';
+      render();
+
+      try{
+        const graded = await gradeTest(items, { level: S.profile.level, leniency: sess.leniency, spellingLenient: sess.spellingLenient, persona: sess.persona });
+        let pointsEarned = 0;
+        const gradedResults = sess.questions.map((q, i) => {
+          const g = graded[i] || { pointsEarned: 0, feedback: '' };
+          const earned = Math.max(0, Math.min(q.points, typeof g.pointsEarned === 'number' ? g.pointsEarned : 0));
+          pointsEarned += earned;
+          return { pointsEarned: earned, feedback: g.feedback };
+        });
+
+        sess.pointsEarned = pointsEarned;
+        sess.submitted = true;
+        sess.gradedResults = gradedResults;
+
+        const pct = Math.round((pointsEarned / sess.totalPoints) * 100);
+        const letter = letterFor(pct);
+        if(!set.history) set.history = [];
+        const newHist = {
+          type: 'test',
+          timestamp: Date.now(),
+          scoreText: pointsEarned.toFixed(1) + '/' + sess.totalPoints,
+          pct,
+          letter
+        };
+        set.history.push(newHist);
+
+        if(S.supabaseClient){
+          const { data: { session } } = await S.supabaseClient.auth.getSession();
+          if(session){
+            await S.supabaseClient.from('history').insert({
+              study_set_id: set.id,
+              user_id: session.user.id,
+              type: newHist.type,
+              score_text: newHist.scoreText,
+              pct: newHist.pct,
+              letter: newHist.letter,
+              timestamp: newHist.timestamp
+            });
+          }
+        }
+
+        await saveStudySet(set);
+      }catch(e){
+        alert('Test grading failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+  const generateCtestBtn = document.getElementById('generate-ctest');
+  if(generateCtestBtn){
+    generateCtestBtn.onclick = async () => {
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      const typeCounts = {};
+      document.querySelectorAll('.ctest-type-count').forEach(el => {
+        const n = parseInt(el.value) || 0;
+        if(n > 0) typeCounts[el.getAttribute('data-type')] = n;
+      });
+      if(Object.keys(typeCounts).length === 0){ alert('Set at least one question type above 0.'); return; }
+      const count = Object.values(typeCounts).reduce((a,b)=>a+b, 0);
+      const leniency = document.getElementById('ctest-leniency').value;
+      const spellingLenient = document.getElementById('ctest-spelling').checked;
+      const persona = document.getElementById('ctest-persona').value.trim();
+      const computational = document.getElementById('ctest-computational').checked;
+      const rec = recommendTimerMinutes(count);
+      const timerMode = document.getElementById('ctest-timer-mode').value;
+      const timerCustomEl = document.getElementById('ctest-timer-custom');
+      const timerCustom = timerCustomEl ? parseInt(timerCustomEl.value) || rec : rec;
+      const timerMinutes = resolveTimerMinutes('ctest', rec);
+
+      const customTestSettings = { typeCounts, leniency, spellingLenient, persona, timerMode, timerCustom, computational };
+      await persistSetSettings(set, { customTestSettings });
+
+      S.loading = true;
+      S.loadingMsg = 'Generating formal test...';
+      render();
+
+      try{
+        const questions = await generateCustomTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, typeCounts, leniency, persona, computational });
+        const totalPoints = questions.reduce((acc,q)=>acc+q.points, 0);
+        S.customTestSession = {
+          questions,
+          totalPoints,
+          answers: {},
+          submitted: false,
+          pointsEarned: 0,
+          gradedResults: [],
+          leniency, spellingLenient, persona,
+          timerTotalSeconds: timerMinutes ? timerMinutes*60 : null,
+          timerRemaining: timerMinutes ? timerMinutes*60 : null
+        };
+        if(timerMinutes){
+          startSessionTimer(S.customTestSession, () => {
+            const btn = document.getElementById('submit-ctest');
+            if(btn) btn.click();
+          });
+        }
+      }catch(e){
+        alert('Custom test generation failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+
+  const discardCtestBtn = document.getElementById('discard-ctest');
+  if(discardCtestBtn){
+    discardCtestBtn.onclick = () => {
+      clearActiveTimer();
+      S.customTestSession = null;
+      render();
+    };
+  }
+
+  document.querySelectorAll('input[name^="ct_"]').forEach(el => {
+    el.onchange = (e) => {
+      const qidx = parseInt(e.target.name.replace('ct_',''));
+      if(S.customTestSession) S.customTestSession.answers[qidx] = e.target.value;
+      updateCustomTestProgressText();
+    };
+  });
+  document.querySelectorAll('.ctest-text-in').forEach(el => {
+    el.oninput = (e) => {
+      const qidx = parseInt(e.target.getAttribute('data-qidx'));
+      if(S.customTestSession) S.customTestSession.answers[qidx] = e.target.value;
+      updateCustomTestProgressText();
+    };
+  });
+
+  const submitCtestBtn = document.getElementById('submit-ctest');
+  if(submitCtestBtn){
+    submitCtestBtn.onclick = async () => {
+      const sess = S.customTestSession;
+      const set = S.studySets.find(s=>s.id===S.currentSetId);
+      clearActiveTimer();
+
+      S.loading = true;
+      S.loadingMsg = 'Grading test responses...';
+      render();
+
+      try{
+        // Objective types (multiple_choice / true_false) are graded instantly,
+        // full-or-nothing, same as Practice Quiz. Only open-ended types go
+        // through AI partial-credit grading, same as Formal Test.
+        const subjectiveIdxs = [];
+        const subjectiveItems = [];
+        const gradedResults = new Array(sess.questions.length);
+
+        sess.questions.forEach((q, i) => {
+          const userAns = (sess.answers[i] || '').trim();
+          if(q.type === 'multiple_choice' || q.type === 'true_false'){
+            const correct = userAns.toLowerCase() === (q.answer||'').toLowerCase();
+            gradedResults[i] = { pointsEarned: correct ? q.points : 0, feedback: q.rubric || '' };
+          } else {
+            subjectiveIdxs.push(i);
+            subjectiveItems.push({ question: q.question, rubric: q.rubric, points: q.points, userAnswer: sess.answers[i] });
+          }
+        });
+
+        if(subjectiveItems.length > 0){
+          const graded = await gradeTest(subjectiveItems, { level: S.profile.level, leniency: sess.leniency, spellingLenient: sess.spellingLenient, persona: sess.persona });
+          subjectiveIdxs.forEach((qi, gi) => {
+            const g = graded[gi] || { pointsEarned: 0, feedback: '' };
+            const maxPts = sess.questions[qi].points;
+            const earned = Math.max(0, Math.min(maxPts, typeof g.pointsEarned === 'number' ? g.pointsEarned : 0));
+            gradedResults[qi] = { pointsEarned: earned, feedback: g.feedback };
+          });
+        }
+
+        const pointsEarned = gradedResults.reduce((acc,g)=>acc+g.pointsEarned, 0);
+        sess.pointsEarned = pointsEarned;
+        sess.submitted = true;
+        sess.gradedResults = gradedResults;
+
+        const pct = Math.round((pointsEarned / sess.totalPoints) * 100);
+        const letter = letterFor(pct);
+        if(!set.history) set.history = [];
+        const newHist = {
+          type: 'customtest',
+          timestamp: Date.now(),
+          scoreText: pointsEarned.toFixed(1) + '/' + sess.totalPoints,
+          pct,
+          letter
+        };
+        set.history.push(newHist);
+
+        if(S.supabaseClient){
+          const { data: { session } } = await S.supabaseClient.auth.getSession();
+          if(session){
+            await S.supabaseClient.from('history').insert({
+              study_set_id: set.id,
+              user_id: session.user.id,
+              type: newHist.type,
+              score_text: newHist.scoreText,
+              pct: newHist.pct,
+              letter: newHist.letter,
+              timestamp: newHist.timestamp
+            });
+          }
+        }
+
+        await saveStudySet(set);
+      }catch(e){
+        alert('Test grading failed: ' + e.message);
+      }finally{
+        S.loading = false;
+        render();
+      }
+    };
+  }
+}
+
+loadAll();
+
+})();
