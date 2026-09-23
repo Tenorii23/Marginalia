@@ -259,6 +259,109 @@
   .feature-card h3{ font-family: var(--font-serif); font-size: 16px; margin-bottom: var(--sp-2); }
   .feature-card p{ color: var(--ink-soft); font-size: 13.5px; line-height:1.6; margin:0; }
 
+  /* ── Landing refresh: nav, how-it-works, showcase rows, close block ── */
+  .landing-nav{ position:sticky; top:0; z-index:40; background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(8px); border-bottom:1px solid var(--rule); }
+  .landing-nav-inner{ max-width:1000px; margin:0 auto; padding: var(--sp-3) var(--sp-5); display:flex; align-items:center; justify-content:space-between; gap: var(--sp-4); }
+  .landing-nav-mark{ font-family: var(--font-serif); font-size:17px; font-weight:700; letter-spacing:0.2px; color: var(--ink); text-decoration:none; }
+  .landing-nav-links{ display:flex; align-items:center; gap: var(--sp-5); font-size:13.5px; }
+  .landing-nav-links a{ color: var(--ink-soft); text-decoration:none; border-bottom:1px solid transparent; padding-bottom:1px; transition: color 0.15s ease, border-color 0.15s ease; }
+  .landing-nav-links a:hover{ color: var(--ink); border-bottom-color: var(--rule-strong); }
+
+  .landing-hero{ padding: var(--sp-8) 0 var(--sp-7); }
+  .landing-sub{ font-size:15.5px; max-width:480px; }
+  .landing-badge{ color: var(--ink-soft); background: transparent; border-color: var(--rule); }
+  .landing-cta-row{ margin-bottom: var(--sp-6); }
+  .landing-scroll-hint{ margin-top: var(--sp-2); }
+
+  .landing-section-title{ text-align:center; font-size:22px; margin:0 0 var(--sp-6); }
+
+  .landing-how{ padding: var(--sp-8) 0 var(--sp-7); border-bottom:1px solid var(--rule); }
+  .how-grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-5); }
+  .how-step{ display:flex; flex-direction:column; gap:6px; padding-top: var(--sp-3); border-top:2px solid var(--oxblood); }
+  .how-step-num{ font-family: var(--font-mono); font-size:12px; letter-spacing:1px; color: var(--oxblood); }
+  .how-step h3{ font-size:16px; }
+  .how-step p{ font-size:14.5px; line-height:1.6; color: var(--ink-soft); margin:0; }
+
+  .landing-showcase{ display:flex; flex-direction:column; gap: var(--sp-8); padding: var(--sp-8) 0; border-bottom:1px solid var(--rule); }
+  .showcase-row{ display:grid; grid-template-columns: 0.85fr 1.15fr; align-items:center; gap: var(--sp-7); }
+  .showcase-row.flipped{ grid-template-columns: 1.15fr 0.85fr; }
+  .showcase-row.flipped .showcase-copy{ order:2; }
+  .showcase-num{ font-family: var(--font-mono); font-size:13px; letter-spacing:1.5px; color: var(--oxblood); margin-bottom: var(--sp-2); }
+  .showcase-copy h3{ font-family: var(--font-serif); font-size:22px; line-height:1.3; margin-bottom: var(--sp-3); }
+  .showcase-copy p{ font-size:15.5px; line-height:1.65; color: var(--ink-soft); max-width:42ch; margin:0; }
+
+  /* CSS-only product mocks (no image files needed) */
+  .mock{ border:1px solid var(--rule-strong); background: var(--paper-raised); padding: var(--sp-4); }
+  .mock-bar{ display:flex; align-items:center; gap:6px; padding-bottom: var(--sp-3); margin-bottom: var(--sp-3); border-bottom:1px solid var(--rule); }
+  .mock-dot{ width:7px; height:7px; border-radius:50%; background: var(--rule-strong); }
+  .mock-bar span{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-faint); margin-left:auto; letter-spacing:0.4px; }
+  .mock-cols{ display:grid; grid-template-columns: 1fr auto 1fr; align-items:center; gap: var(--sp-3); }
+  .mock-panel{ border:1px solid var(--rule); background: var(--paper); padding: var(--sp-3); }
+  .mock-label{ font-family: var(--font-mono); font-size:10px; letter-spacing:1px; color: var(--ink-faint); margin-bottom: var(--sp-2); }
+  .mock-line{ height:6px; background: var(--rule); margin-bottom:6px; }
+  .mock-line.w90{ width:90%; } .mock-line.w75{ width:75%; } .mock-line.w60{ width:60%; } .mock-line.w45{ width:45%; }
+  .mock-line.ink{ background: var(--rule-strong); }
+  .mock-arrow{ color: var(--oxblood); font-size:16px; }
+  .mock-chips{ display:flex; gap:6px; margin-top: var(--sp-3); }
+  .mock-chip{ flex:1; border:1px solid var(--rule); background: var(--paper-raised); padding:8px 4px; text-align:center; font-family: var(--font-mono); font-size:9.5px; color: var(--ink-soft); }
+  .mock-q{ font-family: var(--font-serif); font-size:13.5px; color: var(--ink); margin-bottom: var(--sp-3); }
+  .mock-opt{ display:flex; align-items:center; justify-content:space-between; border:1px solid var(--rule); background: var(--paper); padding:9px 12px; margin-bottom:6px; font-size:12.5px; color: var(--ink-soft); }
+  .mock-opt.picked{ border-color: var(--oxblood); color: var(--ink); }
+  .mock-opt.picked b{ color: var(--oxblood); font-weight:600; }
+  .mock-tiers{ display:flex; gap:6px; margin-top: var(--sp-3); }
+  .mock-tier{ font-family: var(--font-mono); font-size:10px; border:1px solid var(--rule); padding:4px 10px; color: var(--ink-faint); }
+  .mock-tier.on{ border-color: var(--oxblood); color: var(--oxblood); }
+  .mock-split{ display:grid; grid-template-columns: 1fr auto; gap: var(--sp-4); align-items:start; }
+  .mock-score{ font-family: var(--font-mono); font-size:20px; color: var(--green); line-height:1.1; text-align:right; }
+  .mock-score small{ display:block; font-size:10px; color: var(--ink-faint); letter-spacing:0.5px; }
+  .mock-track{ height:5px; background: var(--paper-deep); margin: var(--sp-3) 0; }
+  .mock-track i{ display:block; height:100%; width:85%; background: var(--green); }
+  .mock-feedback{ border-left:2px solid var(--green); padding-left: var(--sp-3); }
+  .mock-stats{ display:grid; grid-template-columns: 1.4fr 1fr; gap: var(--sp-3); }
+  .mock-chart{ border:1px solid var(--rule); background: var(--paper); padding: var(--sp-2); }
+  .mock-chart svg{ display:block; width:100%; height:100px; }
+  .mock-heat{ display:grid; grid-template-columns: repeat(10, 1fr); gap:3px; }
+  .mock-heat i{ aspect-ratio:1; background: var(--green); }
+  .mock-tiles{ display:flex; gap: var(--sp-2); margin-top: var(--sp-3); }
+  .mock-tile{ flex:1; border:1px solid var(--rule); background: var(--paper); padding: var(--sp-2); }
+  .mock-tile b{ font-family: var(--font-mono); font-size:16px; color: var(--ink); display:block; }
+  .mock-tile span{ font-size:10.5px; color: var(--ink-faint); }
+
+  .landing-features{ padding: var(--sp-8) 0 var(--sp-7); }
+  .feature-grid{ grid-template-columns: repeat(3, 1fr); align-items:stretch; }
+  .feature-card{ height:100%; background: var(--paper-deep); }
+  .feature-card:hover{ transform:none; }
+  .feature-num{ font-size:12px; color: var(--oxblood); opacity:0.85; }
+  .feature-card p{ font-size:14.5px; }
+
+  .landing-close{ text-align:center; padding: var(--sp-7) 0 var(--sp-8); border-top:1px solid var(--rule); }
+  .landing-close-quote{ font-family: var(--font-serif); font-size:20px; line-height:1.4; color: var(--ink); max-width:34ch; margin:0 auto var(--sp-5); }
+  .landing-close-stats{ display:flex; flex-wrap:wrap; justify-content:center; gap: var(--sp-3) var(--sp-6); font-size:13.5px; color: var(--ink-soft); margin-bottom: var(--sp-6); }
+  .landing-close-stats strong{ color: var(--ink); font-weight:600; }
+  .landing .footer-note{ margin-top:0; padding: var(--sp-4) 0 var(--sp-6); text-align:center; font-size:12px; }
+
+  @media (max-width: 860px){
+    .how-grid{ grid-template-columns: 1fr; gap: var(--sp-4); }
+    .feature-grid{ grid-template-columns: repeat(2, 1fr); }
+    .showcase-row, .showcase-row.flipped{ grid-template-columns: 1fr; gap: var(--sp-4); }
+    .showcase-row.flipped .showcase-copy{ order:0; }
+    .landing-showcase{ gap: var(--sp-7); }
+  }
+  @media (max-width: 560px){
+    .landing-nav-inner{ padding: var(--sp-3) var(--sp-4); }
+    .landing-nav-links{ gap: var(--sp-3); }
+    .landing-nav-links a{ display:none; }
+    .landing-sub{ font-size:14.5px; }
+    .feature-grid{ grid-template-columns: 1fr; }
+    .showcase-copy h3{ font-size:19px; }
+    .landing-section-title{ font-size:19px; }
+    .landing-close-quote{ font-size:17px; }
+    .landing-close-stats{ flex-direction:column; gap: var(--sp-2); }
+    .mock-cols{ grid-template-columns: 1fr; }
+    .mock-arrow{ transform: rotate(90deg); text-align:center; }
+    .mock-stats{ grid-template-columns: 1fr; }
+  }
+
   /* ── First-time product tour ── */
   .tour-highlight{ position:fixed; border-radius:4px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.6); border:2px solid var(--oxblood); z-index:200; pointer-events:none; transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease; }
   .tour-tooltip{ position:fixed; z-index:201; background:var(--paper); border:1px solid var(--rule-strong); padding: var(--sp-4); box-shadow:0 6px 24px rgba(0,0,0,0.35); }
@@ -559,9 +662,7 @@ const S = {
   dashboardSearch: '',
   dashboardActiveTags: [],
   dashboardGroupBy: 'none', // 'none' | 'category'
-  editingTagsSetId: null,
-  historySortBy: 'date',   // 'date' | 'score'
-  historyDetailIdx: null,
+  editingTagsSetId: null
 };
 
 const PRESET_API_KEYS = [
@@ -578,9 +679,13 @@ applyDarkMode();
 
 const SAFE_FALLBACK_MODEL = 'gemini-3.6-flash';
 const FALLBACK_MODELS = [
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
+  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
   { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
   { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
   { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
 ];
 
 const PRESET_SCALES = {
@@ -671,7 +776,7 @@ async function loadAll(){
         const [snRes, qRes, hRes] = await Promise.all([
           S.supabaseClient.from('sticky_notes').select('id, title, body, box_level, next_review').eq('study_set_id', s.id),
           S.supabaseClient.from('quizzes').select('type, question, options, answer, topic, explanation').eq('study_set_id', s.id),
-S.supabaseClient.from('history').select('type, score_text, pct, letter, timestamp, details').eq('study_set_id', s.id).order('timestamp', { ascending: true })
+          S.supabaseClient.from('history').select('type, score_text, pct, letter, timestamp').eq('study_set_id', s.id).order('timestamp', { ascending: true })
         ]);
 
         sets.push({
@@ -700,8 +805,7 @@ S.supabaseClient.from('history').select('type, score_text, pct, letter, timestam
             scoreText: h.score_text,
             pct: h.pct,
             letter: h.letter,
-            timestamp: h.timestamp,
-            details: h.details || null,
+            timestamp: h.timestamp
           }))
         });
       }
@@ -1021,84 +1125,132 @@ function requestModelFallback(failedModel, errorMsg) {
   });
 }
 
-async function callGemini(parts, { jsonSchema=true, _retried=false } = {}){
+async function callGemini(parts, { jsonSchema=true } = {}){
   if(!S.apiKey){ throw new Error('No API key set. Add your Google AI Studio API key in Settings.'); }
-  const model = S.model || SAFE_FALLBACK_MODEL;
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(S.apiKey);
-  const body = {
-    contents: [{ role: 'user', parts }],
-    generationConfig: jsonSchema ? { responseMimeType: 'application/json', temperature: 0.4 } : { temperature: 0.4 }
-  };
-  let res;
-  try{
-    res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  }catch(networkErr){
-    throw new Error('Could not reach the Gemini API. Ensure you are connected to the internet and API Key is valid.');
-  }
-  if(!res.ok){
-    let msg = '';
-    try{ const j = await res.json(); msg = j.error?.message || JSON.stringify(j); }catch(e){ msg = await res.text(); }
-    const retired = res.status===404 && /no longer available|not found for API version|is not found/i.test(msg);
-    if(retired && !_retried && model !== SAFE_FALLBACK_MODEL){
-      S.model = SAFE_FALLBACK_MODEL;
-      await saveModel();
-      S.autoSwitchedModel = { from: model, to: SAFE_FALLBACK_MODEL };
-      return callGemini(parts, { jsonSchema, _retried: true });
+  const originalModel = S.model || SAFE_FALLBACK_MODEL;
+  let triedModels = [];
+  let currentModel = originalModel;
+
+  while(true){
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + currentModel + ':generateContent?key=' + encodeURIComponent(S.apiKey);
+    const body = {
+      contents: [{ role: 'user', parts }],
+      generationConfig: jsonSchema ? { responseMimeType: 'application/json', temperature: 0.4 } : { temperature: 0.4 }
+    };
+    let res;
+    try{
+      res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }catch(networkErr){
+      throw new Error('Could not reach the Gemini API. Ensure you are connected to the internet and API Key is valid.');
     }
 
+    if(res.ok){
+      const data = await res.json();
+      if(data.promptFeedback?.blockReason){ throw new Error('Request was blocked: ' + data.promptFeedback.blockReason); }
+      const cand = data.candidates && data.candidates[0];
+      const text = cand?.content?.parts?.map(p=>p.text||'').join('') || '';
+      if(!text) throw new Error('Empty response from the model. Try again.');
+
+      if(currentModel !== originalModel){
+        S.model = currentModel;
+        await saveModel();
+        S.autoSwitchedModel = { from: originalModel, to: currentModel };
+      }
+
+      if(!jsonSchema) return text;
+      try{ return JSON.parse(text); }
+      catch(e){
+        const cleaned = text.replace(/```json/gi,'').replace(/```/g,'').trim();
+        return JSON.parse(cleaned);
+      }
+    }
+
+    let msg = '';
+    try{ const j = await res.json(); msg = j.error?.message || JSON.stringify(j); }catch(e){ msg = await res.text(); }
+
+    const retired = res.status===404 && /no longer available|not found for API version|is not found/i.test(msg);
     const highDemand = res.status === 429 || /resource_exhausted|quota|overloaded|high demand|too many requests/i.test(msg);
-    if(highDemand && !_retried){
-      const shouldSwitch = await requestModelFallback(model, msg);
-      if(shouldSwitch){
-        return callGemini(parts, { jsonSchema, _retried: true });
+
+    if(retired || highDemand){
+      triedModels.push(currentModel);
+      const nextModel = FALLBACK_MODELS.map(m=>m.id).find(id => triedModels.indexOf(id) === -1);
+      if(nextModel){
+        // Silently cycle to the next available model - no prompt, no interruption.
+        currentModel = nextModel;
+        continue;
+      }
+      if(highDemand){
+        // Every model in the list is currently busy - only now ask the user.
+        const shouldRetry = await requestModelFallback(currentModel, msg);
+        if(shouldRetry){
+          triedModels = [];
+          currentModel = originalModel;
+          continue;
+        }
       }
     }
 
     throw new Error('Gemini API error (' + res.status + '): ' + msg.slice(0,300));
   }
-  const data = await res.json();
-  if(data.promptFeedback?.blockReason){ throw new Error('Request was blocked: ' + data.promptFeedback.blockReason); }
-  const cand = data.candidates && data.candidates[0];
-  const text = cand?.content?.parts?.map(p=>p.text||'').join('') || '';
-  if(!text) throw new Error('Empty response from the model. Try again.');
-  if(!jsonSchema) return text;
-  try{ return JSON.parse(text); }
-  catch(e){
-    const cleaned = text.replace(/```json/gi,'').replace(/```/g,'').trim();
-    return JSON.parse(cleaned);
-  }
 }
 
-async function callGeminiChat(messages, { _retried=false } = {}){
+async function callGeminiChat(messages){
   if(!S.apiKey){ throw new Error('No API key set. Add your Google AI Studio API key in Settings.'); }
-  const model = S.model || SAFE_FALLBACK_MODEL;
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(S.apiKey);
+  const originalModel = S.model || SAFE_FALLBACK_MODEL;
+  let triedModels = [];
+  let currentModel = originalModel;
   const contents = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.text }] }));
-  const body = { contents, generationConfig: { temperature: 0.5 } };
-  let res;
-  try{
-    res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  }catch(networkErr){
-    throw new Error('Could not reach the Gemini API. Ensure you are connected to the internet and API Key is valid.');
-  }
-  if(!res.ok){
+
+  while(true){
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + currentModel + ':generateContent?key=' + encodeURIComponent(S.apiKey);
+    const body = { contents, generationConfig: { temperature: 0.5 } };
+    let res;
+    try{
+      res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }catch(networkErr){
+      throw new Error('Could not reach the Gemini API. Ensure you are connected to the internet and API Key is valid.');
+    }
+
+    if(res.ok){
+      const data = await res.json();
+      if(data.promptFeedback?.blockReason){ throw new Error('Request was blocked: ' + data.promptFeedback.blockReason); }
+      const cand = data.candidates && data.candidates[0];
+      const text = cand?.content?.parts?.map(p=>p.text||'').join('') || '';
+      if(!text) throw new Error('Empty response from the model. Try again.');
+
+      if(currentModel !== originalModel){
+        S.model = currentModel;
+        await saveModel();
+        S.autoSwitchedModel = { from: originalModel, to: currentModel };
+      }
+      return text;
+    }
+
     let msg = '';
     try{ const j = await res.json(); msg = j.error?.message || JSON.stringify(j); }catch(e){ msg = await res.text(); }
+
     const retired = res.status===404 && /no longer available|not found for API version|is not found/i.test(msg);
-    if(retired && !_retried && model !== SAFE_FALLBACK_MODEL){
-      S.model = SAFE_FALLBACK_MODEL;
-      await saveModel();
-      S.autoSwitchedModel = { from: model, to: SAFE_FALLBACK_MODEL };
-      return callGeminiChat(messages, { _retried: true });
+    const highDemand = res.status === 429 || /resource_exhausted|quota|overloaded|high demand|too many requests/i.test(msg);
+
+    if(retired || highDemand){
+      triedModels.push(currentModel);
+      const nextModel = FALLBACK_MODELS.map(m=>m.id).find(id => triedModels.indexOf(id) === -1);
+      if(nextModel){
+        currentModel = nextModel;
+        continue;
+      }
+      if(highDemand){
+        const shouldRetry = await requestModelFallback(currentModel, msg);
+        if(shouldRetry){
+          triedModels = [];
+          currentModel = originalModel;
+          continue;
+        }
+      }
     }
+
     throw new Error('Gemini API error (' + res.status + '): ' + msg.slice(0,300));
   }
-  const data = await res.json();
-  if(data.promptFeedback?.blockReason){ throw new Error('Request was blocked: ' + data.promptFeedback.blockReason); }
-  const cand = data.candidates && data.candidates[0];
-  const text = cand?.content?.parts?.map(p=>p.text||'').join('') || '';
-  if(!text) throw new Error('Empty response from the model. Try again.');
-  return text;
 }
 
 async function fileToInlinePart(file){
@@ -1688,14 +1840,14 @@ function renderModelFallbackModal(){
   if(!m) return '';
   return '<div class="loading-overlay" style="background:rgba(0,0,0,0.85); z-index:100;">' +
     '<div class="callout" style="background:var(--paper-raised); max-width:480px; width:90%; padding:24px; border:1px solid var(--rule-strong); text-align:left;">' +
-      '<h3 style="margin-bottom:12px; font-size:18px;">High Demand on Model</h3>' +
+      '<h3 style="margin-bottom:12px; font-size:18px;">All models are busy right now</h3>' +
       '<p style="margin-bottom:16px; font-size:13.5px; color:var(--ink-soft); line-height:1.5;">' +
-        'The model <strong>' + esc(m.failedModel) + '</strong> is currently experiencing high demand or rate limits.<br><br>' +
-        'Would you like to switch to <strong>' + esc(m.fallbackModel) + '</strong> and retry your request?' +
+        'Marginalia already tried every available Gemini model, and they\'re all currently experiencing high demand or rate limits.<br><br>' +
+        'Want to try the whole list again?' +
       '</p>' +
       '<div style="display:flex; gap:12px; justify-content:flex-end;">' +
         '<button type="button" class="btn btn-quiet btn-sm" id="fallback-cancel">Cancel</button>' +
-        '<button type="button" class="btn btn-primary btn-sm" id="fallback-confirm">Switch & Retry</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="fallback-confirm">Retry</button>' +
       '</div>' +
     '</div>' +
   '</div>';
@@ -1753,62 +1905,148 @@ function renderTopbar(){
   );
 }
 
-const FEATURE_SECTIONS = [
+const HOW_STEPS = [
+  { title: 'Add your notes',     body: 'Paste text, or upload photos and PDFs of the pages you already have.' },
+  { title: 'Get a study set',    body: 'A summary, revision cards and a first quiz, ready in a few seconds.' },
+  { title: 'Practise and track', body: 'Quiz, test, review daily — and watch the weak spots close up.' }
+];
+
+// The four headline features, each with a CSS-only product mock (no image files).
+const SHOWCASE_ROWS = [
   {
-    title: 'Turn your notes into a full study set',
-    body: 'Paste lecture notes or an outline, or upload photos/PDFs of handwritten or textbook pages. The AI reads everything, writes a clean consolidated summary, generates a set of revision sticky notes, builds an initial quiz, and even figures out what subject it is (Chemistry, World History, whatever it is) automatically.'
+    title: 'Notes in, study set out',
+    body: 'Paste your notes or upload photos and PDFs. You get a clean summary, revision cards, and a first quiz — subject tagged automatically.',
+    mock: mockNotes
   },
   {
-    title: 'Practice Quiz, customized every time',
-    body: 'Pick the question count, which question types to include (multiple choice, true/false, short answer, fill in the blank), and a difficulty tier — Easy, Medium, Hard, or Dynamic, which auto-adjusts based on your recent scores. A fresh quiz is generated each time you take it, with an optional timer and instant grading with explanations.'
+    title: 'A fresh quiz every time',
+    body: 'Choose the length, question types, and difficulty — or let Dynamic follow your recent scores. Graded instantly, with explanations.',
+    mock: mockQuiz
   },
   {
-    title: 'Formal Test, graded like a real exam',
-    body: 'Short-answer and essay questions, graded by AI on meaning and substance rather than exact wording — with real partial credit. Tune the grading leniency (strict/standard/lenient), tell it to ignore minor spelling slips, and even set an examiner persona to flavor the questions and feedback.'
+    title: 'Tests graded on meaning',
+    body: 'Short answers and essays are marked on substance, not exact wording, with real partial credit and feedback you can argue with.',
+    mock: mockTest
   },
   {
-    title: 'Custom Test: the best of both',
-    body: 'Choose your question types like a Practice Quiz, but get AI partial-credit grading like a Formal Test. Multiple choice and true/false are graded full-or-nothing since they\'re inherently binary; short answer and fill-in-the-blank get the same rubric-based partial credit as a Formal Test.'
-  },
-  {
-    title: 'Comprehensive Exam builder',
-    body: 'Studying for a midterm or final that spans several units? Select 2–5 of your study sets and generate one cumulative exam that samples proportionally across all of them.'
-  },
-  {
-    title: 'Daily Review keeps things fresh',
-    body: 'A Leitner-style spaced repetition queue pulls due flashcards from across all your study sets — 1, 3, 7, then 14-day intervals depending on how well you know each one. Turn on browser reminders in Settings so you don\'t forget.'
-  },
-  {
-    title: 'Ask Tutor when you get something wrong',
-    body: 'Any missed question on a quiz or test has an "Ask Tutor" button that opens a live chat with a Socratic AI tutor — ask why your answer was wrong, get a real-world analogy, or request an easier practice question on that exact concept.'
-  },
-  {
-    title: 'Active Recall Mode',
-    body: 'Toggle your notes summary into cloze-deletion mode — key terms get masked into blanks you click to reveal, turning passive reading into active recall without generating a whole new quiz.'
-  },
-  {
-    title: 'Stats that actually help you study smarter',
-    body: 'Every quiz, test, and exam you take is tracked: score trends over time, your strongest and weakest subjects, a day streak, and an activity heatmap — filterable by whichever study sets you care about.'
-  },
-  {
-    title: 'Explore: a public space to share sets',
-    body: 'Publish a study set for other people to find — mark it Copyable so anyone can add it straight to their own account and make it fully theirs, or View Only so people can read through it without copying it.'
-  },
-  {
-    title: 'And the smaller things',
-    body: 'Tags, search, and subject grouping once you\'ve got more than a few sets. Export any set to a clean, printable PDF. Full LaTeX rendering for math/chemistry/physics formulas. Dark mode. It all stays out of your way until you need it.'
+    title: 'Progress you can actually read',
+    body: 'Score trends, strongest and weakest subjects, a day streak, and an activity heatmap — filtered to the sets you care about.',
+    mock: mockStats
   }
+];
+
+function mockChrome(label, inner){
+  return (
+    '<div class="mock" aria-hidden="true">' +
+      '<div class="mock-bar"><i class="mock-dot"></i><i class="mock-dot"></i><i class="mock-dot"></i><span>' + label + '</span></div>' +
+      inner +
+    '</div>'
+  );
+}
+
+function mockLines(specs){
+  return specs.map(w => '<div class="mock-line ' + w + '"></div>').join('');
+}
+
+function mockNotes(){
+  return mockChrome('new study set',
+    '<div class="mock-cols">' +
+      '<div class="mock-panel">' +
+        '<div class="mock-label">PASTED NOTES</div>' +
+        mockLines(['','w90','','w75','','w60','w90','w45']) +
+      '</div>' +
+      '<div class="mock-arrow">&rarr;</div>' +
+      '<div class="mock-panel">' +
+        '<div class="mock-label">SUMMARY</div>' +
+        mockLines(['ink','ink w75','w90','w60']) +
+        '<div class="mock-chips"><div class="mock-chip">CARD 1</div><div class="mock-chip">CARD 2</div><div class="mock-chip">CARD 3</div></div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function mockQuiz(){
+  return mockChrome('practice quiz &middot; 04:12',
+    '<div class="mock-q">Which data structure gives O(1) average lookup?</div>' +
+    '<div class="mock-opt">Linked list</div>' +
+    '<div class="mock-opt">Binary tree</div>' +
+    '<div class="mock-opt picked">Hash map <b>&check;</b></div>' +
+    '<div class="mock-opt">Sorted array</div>' +
+    '<div class="mock-tiers"><span class="mock-tier">EASY</span><span class="mock-tier on">MEDIUM</span><span class="mock-tier">HARD</span><span class="mock-tier">DYNAMIC</span></div>'
+  );
+}
+
+function mockTest(){
+  return mockChrome('formal test &middot; graded',
+    '<div class="mock-split">' +
+      '<div class="mock-panel" style="border:none; background:transparent; padding:0;">' +
+        '<div class="mock-label">YOUR ANSWER</div>' +
+        mockLines(['','w90','w75','w60']) +
+      '</div>' +
+      '<div class="mock-score">17/20<small>PARTIAL CREDIT</small></div>' +
+    '</div>' +
+    '<div class="mock-track"><i></i></div>' +
+    '<div class="mock-feedback">' +
+      '<div class="mock-label">EXAMINER NOTES</div>' +
+      mockLines(['w90','w75','w45']) +
+    '</div>'
+  );
+}
+
+function mockStats(){
+  var heat = '';
+  var op = [0.15,0.5,0.9,0.3,0.7,1,0.2,0.6,0.85,0.4];
+  for(var i = 0; i < 30; i++){ heat += '<i style="opacity:' + op[i % op.length] + '"></i>'; }
+  return mockChrome('stats &middot; last 30 days',
+    '<div class="mock-stats">' +
+      '<div class="mock-chart">' +
+        '<svg viewBox="0 0 200 100" preserveAspectRatio="none" role="presentation">' +
+          '<polyline fill="none" stroke="var(--oxblood)" stroke-width="2" points="0,82 25,74 50,78 75,58 100,60 125,44 150,34 175,26 200,14"></polyline>' +
+        '</svg>' +
+      '</div>' +
+      '<div><div class="mock-label">ACTIVITY</div><div class="mock-heat">' + heat + '</div></div>' +
+    '</div>' +
+    '<div class="mock-tiles">' +
+      '<div class="mock-tile"><b>12</b><span>day streak</span></div>' +
+      '<div class="mock-tile"><b>86%</b><span>avg score</span></div>' +
+      '<div class="mock-tile"><b>34</b><span>quizzes taken</span></div>' +
+    '</div>'
+  );
+}
+
+// Short cards for everything not covered by a showcase row above.
+const FEATURE_SECTIONS = [
+  { title: 'Custom Test',        body: 'Pick your own question types, then get partial-credit AI grading on the written ones.' },
+  { title: 'Comprehensive Exam', body: 'Combine 2–5 sets into one cumulative exam that samples proportionally across all of them.' },
+  { title: 'Daily Review',       body: 'Spaced repetition pulls due cards from every set on 1, 3, 7 and 14-day intervals.' },
+  { title: 'Ask Tutor',          body: 'Every missed question opens a chat with a Socratic tutor that explains rather than tells.' },
+  { title: 'Active Recall Mode', body: 'Mask key terms in your summary into blanks you click to reveal. No new quiz needed.' },
+  { title: 'Explore',            body: 'Publish a set for others to copy into their own account, or share it as view-only.' },
+  { title: 'Tags & search',      body: 'Group by subject, tag, and search once you have more than a few sets.' },
+  { title: 'Export to PDF',      body: 'Send any set to a clean, printable PDF for the night before.' },
+  { title: 'LaTeX & dark mode',  body: 'Full formula rendering for maths, chemistry and physics. Dark mode throughout.' }
 ];
 
 function renderLanding(){
   return (
-    '<div class="landing">' +
+    '<header class="landing-nav">' +
+      '<div class="landing-nav-inner">' +
+        '<a class="landing-nav-mark" href="#top">Marginalia</a>' +
+        '<nav class="landing-nav-links">' +
+          '<a href="#landing-how">How it works</a>' +
+          '<a href="#landing-features">Features</a>' +
+          '<button class="btn btn-sm btn-quiet" id="landing-login-nav">Log In</button>' +
+          '<button class="btn btn-sm btn-primary" id="landing-signup-nav">Sign Up Free</button>' +
+        '</nav>' +
+      '</div>' +
+    '</header>' +
+    '<div class="landing" id="top">' +
       '<div class="landing-hero">' +
         '<div class="landing-rule-motif" aria-hidden="true"></div>' +
         '<div class="landing-eyebrow stagger-in" style="animation-delay:0ms">AI STUDY COMPANION</div>' +
         '<div class="wordmark stagger-in" style="font-size:40px; animation-delay:60ms;">Marginalia</div>' +
         '<p class="landing-tagline stagger-in" style="animation-delay:120ms">Turn the notes you already have into notes worth studying from.</p>' +
-        '<p class="landing-sub stagger-in" style="animation-delay:180ms">Paste your notes or snap a photo of them, and Marginalia writes a clean summary, builds flashcards, and generates quizzes and graded tests you can actually study from — then tracks your progress over time.</p>' +
+        '<p class="landing-sub stagger-in" style="animation-delay:180ms">Summaries, flashcards, quizzes and graded tests — from your own notes.</p>' +
         '<div class="landing-badges stagger-in" style="animation-delay:240ms">' +
           '<span class="landing-badge">Instant Quizzes</span>' +
           '<span class="landing-badge">AI-Graded Tests</span>' +
@@ -1819,22 +2057,56 @@ function renderLanding(){
           '<button class="btn btn-primary landing-btn-lg" id="landing-signup">Sign Up Free</button>' +
           '<button class="btn btn-quiet landing-btn-lg" id="landing-login">Log In</button>' +
         '</div>' +
-        '<a href="#landing-features" class="landing-scroll-hint stagger-in" style="animation-delay:360ms">See what it does<span class="landing-scroll-arrow">&darr;</span></a>' +
+        '<a href="#landing-how" class="landing-scroll-hint stagger-in" style="animation-delay:360ms">See what it does<span class="landing-scroll-arrow">&darr;</span></a>' +
       '</div>' +
+
+      '<div class="landing-how" id="landing-how">' +
+        '<h2 class="landing-section-title">How it works</h2>' +
+        '<div class="how-grid">' +
+          HOW_STEPS.map((s, i) => (
+            '<div class="how-step stagger-in" style="animation-delay:' + (i*60) + 'ms">' +
+              '<div class="how-step-num">' + (i+1) + '</div>' +
+              '<h3>' + esc(s.title) + '</h3>' +
+              '<p>' + esc(s.body) + '</p>' +
+            '</div>'
+          )).join('') +
+        '</div>' +
+      '</div>' +
+
+      '<div class="landing-showcase">' +
+        SHOWCASE_ROWS.map((r, i) => (
+          '<div class="showcase-row' + (i % 2 ? ' flipped' : '') + '">' +
+            '<div class="showcase-copy">' +
+              '<div class="showcase-num">' + String(i+1).padStart(2,'0') + '</div>' +
+              '<h3>' + esc(r.title) + '</h3>' +
+              '<p>' + esc(r.body) + '</p>' +
+            '</div>' +
+            '<div class="showcase-media">' + r.mock() + '</div>' +
+          '</div>'
+        )).join('') +
+      '</div>' +
+
       '<div class="landing-features" id="landing-features">' +
-        '<h2 style="text-align:center; margin-bottom:var(--sp-6);">Everything Marginalia does</h2>' +
+        '<h2 class="landing-section-title">Everything else it does</h2>' +
         '<div class="feature-grid">' +
           FEATURE_SECTIONS.map((f, i) => (
             '<div class="feature-card stagger-in" style="animation-delay:' + (i*50) + 'ms">' +
-              '<div class="feature-num">' + String(i+1).padStart(2,'0') + '</div>' +
+              '<div class="feature-num">' + String(i+5).padStart(2,'0') + '</div>' +
               '<h3>' + esc(f.title) + '</h3>' +
               '<p>' + esc(f.body) + '</p>' +
             '</div>'
           )).join('') +
         '</div>' +
-        '<div style="text-align:center; margin-top:var(--sp-7);">' +
-          '<button class="btn btn-primary landing-btn-lg" id="landing-signup-bottom">Sign Up Free</button>' +
+      '</div>' +
+
+      '<div class="landing-close">' +
+        '<p class="landing-close-quote">&ldquo;I stopped rewriting my notes and started being tested on them.&rdquo;</p>' +
+        '<div class="landing-close-stats">' +
+          '<span><strong>4 minutes</strong> from notes to first quiz</span>' +
+          '<span><strong>14 days</strong> of spaced review built in</span>' +
+          '<span><strong>Free</strong> to start, no card needed</span>' +
         '</div>' +
+        '<button class="btn btn-primary landing-btn-lg" id="landing-signup-bottom">Sign Up Free</button>' +
       '</div>' +
       renderFooter() +
     '</div>'
@@ -2975,16 +3247,13 @@ function renderSet(){
       '<div class="section-heading" style="margin-bottom:var(--sp-4)">' +
         '<h2>' + esc(set.title) + '</h2>' +
       '</div>' +
-'<div class="tabs">' +
-  '<button class="tab ' + (tab==='notes'?'active':'') + '" data-set-tab="notes">Notes & Sticky Notes</button>' +
-  '<button class="tab ' + (tab==='quiz'?'active':'') + '" data-set-tab="quiz">Practice Quiz</button>' +
-  '<button class="tab ' + (tab==='test'?'active':'') + '" data-set-tab="test">Formal Test</button>' +
-  '<button class="tab ' + (tab==='customtest'?'active':'') + '" data-set-tab="customtest">Custom Test</button>' +
-  '<button class="tab ' + (tab==='history'?'active':'') + '" data-set-tab="history">History</button>' +   // <-- must be here, inside .tabs
-'</div>' +
-      '<div class="tab-content" style="margin-top:var(--sp-5);">' +
-        renderSetTabContent(set, tab) +
+      '<div class="tabs">' +
+        '<button class="tab ' + (tab==='notes'?'active':'') + '" data-set-tab="notes">Notes & Sticky Notes</button>' +
+        '<button class="tab ' + (tab==='quiz'?'active':'') + '" data-set-tab="quiz">Practice Quiz</button>' +
+        '<button class="tab ' + (tab==='test'?'active':'') + '" data-set-tab="test">Formal Test</button>' +
+        '<button class="tab ' + (tab==='customtest'?'active':'') + '" data-set-tab="customtest">Custom Test</button>' +
       '</div>' +
+      renderSetTabContent(set, tab) +
     '</div>'
   );
 }
@@ -2995,7 +3264,6 @@ function renderSetTabContent(set, tab){
     case 'quiz': return renderTabQuiz(set);
     case 'test': return renderTabTest(set);
     case 'customtest': return renderTabCustomTest(set);
-    case 'history': return renderTabHistory(set);
     default: return '';
   }
 }
@@ -3645,59 +3913,6 @@ function renderTabCustomTest(set){
   );
 }
 
-function renderTabHistory(set){
-  if(S.historyDetailIdx != null) return renderHistoryDetail(set, S.historyDetailIdx);
-  const history = (set.history || []).slice();
-  const sortBy = S.historySortBy || 'date';
-  history.sort((a,b) => sortBy === 'score' ? b.pct - a.pct : b.timestamp - a.timestamp);
-  return (
-    '<div>' +
-      '<div class="choice-row" style="margin-bottom:var(--sp-4);">' +
-        '<button class="choice-pill ' + (sortBy==='date'?'selected':'') + '" data-history-sort="date">Newest first</button>' +
-        '<button class="choice-pill ' + (sortBy==='score'?'selected':'') + '" data-history-sort="score">Highest score first</button>' +
-      '</div>' +
-      (history.length === 0 ? '<div class="stats-empty">No quizzes or tests taken yet for this study set.</div>' :
-        '<div class="ledger">' +
-          history.map((h) => {
-            const realIdx = (set.history||[]).indexOf(h);
-            return (
-              '<div class="ledger-row clickable" data-open-history="' + realIdx + '">' +
-                '<div>' +
-                  '<div class="ledger-title"><span class="hist-type">' + h.type.toUpperCase() + '</span> ' + new Date(h.timestamp).toLocaleString() + '</div>' +
-                  '<div class="ledger-meta">Grade: <strong>' + esc(h.letter) + '</strong>' + (h.details ? '' : ' <span class="muted">(no detail saved)</span>') + '</div>' +
-                '</div>' +
-                '<div class="hist-score"><span class="num">' + esc(h.scoreText) + '</span> (' + h.pct + '%)</div>' +
-              '</div>'
-            );
-          }).join('') +
-        '</div>'
-      ) +
-    '</div>'
-  );
-}
-
-function renderHistoryDetail(set, idx){
-  const h = set.history[idx];
-  if(!h) return '<div>Not found.</div>';
-  const backBtn = '<button class="btn btn-quiet btn-sm" id="history-back" style="margin-bottom:var(--sp-4);">&larr; Back to History</button>';
-  if(!h.details){
-    return backBtn + '<div class="stats-empty">No saved detail for this attempt (taken before this feature was added).</div>';
-  }
-  const fakeSess = { questions: h.details.questions, answers: h.details.answers, gradedResults: h.details.gradedResults };
-  const reviewHtml = h.type === 'quiz' ? renderQuizQuestionsReview(fakeSess)
-    : h.type === 'customtest' ? renderCustomTestReview(fakeSess)
-    : renderTestQuestionsReview(fakeSess);
-  return (
-    backBtn +
-    '<div class="score-block">' +
-      '<div class="score-num">' + esc(h.scoreText) + '</div>' +
-      '<div class="score-label">' + h.type.toUpperCase() + ' &bull; ' + new Date(h.timestamp).toLocaleString() + '</div>' +
-      '<div class="score-letter">Grade: ' + esc(h.letter) + '</div>' +
-    '</div>' +
-    reviewHtml
-  );
-}
-
 function renderCustomTestQuestionInput(q, i, userAns){
   userAns = userAns || '';
   const ptsLabel = '<span style="color:var(--ink-faint); font-weight:400;">&bull; ' + q.points + ' pts</span>';
@@ -3824,15 +4039,6 @@ function bindEvents(){
 
   const dismissCloneBanner = document.getElementById('dismiss-clone-banner');
   if(dismissCloneBanner){ dismissCloneBanner.onclick = ()=>{ S.recentCloneInfo = null; render(); }; }
-  
-  document.querySelectorAll('[data-history-sort]').forEach(el => {
-  el.onclick = (e) => { S.historySortBy = e.currentTarget.getAttribute('data-history-sort'); render(); };
-});
-document.querySelectorAll('[data-open-history]').forEach(el => {
-  el.onclick = (e) => { S.historyDetailIdx = parseInt(e.currentTarget.getAttribute('data-open-history')); render(); };
-});
-const historyBack = document.getElementById('history-back');
-if(historyBack){ historyBack.onclick = () => { S.historyDetailIdx = null; render(); }; }
 
   const fallbackCancel = document.getElementById('fallback-cancel');
   if(fallbackCancel){
@@ -3849,11 +4055,9 @@ if(historyBack){ historyBack.onclick = () => { S.historyDetailIdx = null; render
     fallbackConfirm.onclick = () => {
       const m = S.modelFallbackModal;
       const resolveFn = m.resolve;
-      S.model = m.fallbackModel;
-      saveModel();
       S.modelFallbackModal = null;
       S.loading = true;
-      S.loadingMsg = 'Retrying with fallback model...';
+      S.loadingMsg = 'Retrying...';
       render();
       resolveFn(true);
     };
@@ -4055,6 +4259,14 @@ if(historyBack){ historyBack.onclick = () => { S.historyDetailIdx = null; render
   const landingSignupBottom = document.getElementById('landing-signup-bottom');
   if(landingSignupBottom){
     landingSignupBottom.onclick = () => { S.route = 'onboarding'; S.authMode = 'signup'; S._authError = null; render(); };
+  }
+  const landingSignupNav = document.getElementById('landing-signup-nav');
+  if(landingSignupNav){
+    landingSignupNav.onclick = () => { S.route = 'onboarding'; S.authMode = 'signup'; S._authError = null; render(); };
+  }
+  const landingLoginNav = document.getElementById('landing-login-nav');
+  if(landingLoginNav){
+    landingLoginNav.onclick = () => { S.route = 'onboarding'; S.authMode = 'login'; S._authError = null; render(); };
   }
   const landingLogin = document.getElementById('landing-login');
   if(landingLogin){
@@ -4322,7 +4534,6 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       S.flashcardFlipped = false;
       S.flashcardDone = [];
       S.route = 'set';
-      S.historyDetailIdx = null;
       render();
     };
   });
@@ -4937,10 +5148,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           timestamp: Date.now(),
           scoreText: score + '/' + sess.total,
           pct,
-          letter,
-          details: { questions: sess.questions, answers: sess.answers, gradedResults: sess.gradedResults, score, total: sess.total },
-          details: { questions: sess.questions, answers: sess.answers, gradedResults: sess.gradedResults, pointsEarned, totalPoints: sess.totalPoints },
-          details: newHist.details,
+          letter
         };
         set.history.push(newHist);
 
@@ -4948,15 +5156,13 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           const { data: { session } } = await S.supabaseClient.auth.getSession();
           if(session){
             await S.supabaseClient.from('history').insert({
-              details: newHist.details,
               study_set_id: set.id,
               user_id: session.user.id,
               type: newHist.type,
               score_text: newHist.scoreText,
               pct: newHist.pct,
               letter: newHist.letter,
-              timestamp: newHist.timestamp,
-              details: newHist.details,
+              timestamp: newHist.timestamp
             });
           }
         }
@@ -5075,7 +5281,6 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         const pct = Math.round((pointsEarned / sess.totalPoints) * 100);
         const letter = letterFor(pct);
         const historyEntry = {
-          details: { questions: sess.questions, answers: sess.answers, gradedResults: sess.gradedResults, pointsEarned, totalPoints: sess.totalPoints, sourceTitles: sess.sourceTitles },
           type: 'comprehensive',
           timestamp: Date.now(),
           pct,
@@ -5098,8 +5303,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
                   pct: historyEntry.pct,
                   letter: historyEntry.letter,
                   score_text: historyEntry.scoreText,
-                  timestamp: historyEntry.timestamp,
-                  details: historyEntry.details,
+                  timestamp: historyEntry.timestamp
                 });
               }
             }catch(err){ console.error('Failed to save comprehensive exam history', err); }
