@@ -1186,8 +1186,10 @@ async function callGemini(parts, { jsonSchema=true } = {}){
 
     const retired = res.status===404 && /no longer available|not found for API version|is not found/i.test(msg);
     const highDemand = res.status === 429 || /resource_exhausted|quota|overloaded|high demand|too many requests/i.test(msg);
+    const authError = res.status === 401 || res.status === 403;
+    const modelIssue = !authError && res.status >= 400;
 
-    if(retired || highDemand){
+    if(retired || highDemand || modelIssue){
       triedModels.push(currentModel);
       const nextModel = FALLBACK_MODELS.map(m=>m.id).find(id => triedModels.indexOf(id) === -1);
       if(nextModel){
@@ -1247,8 +1249,10 @@ async function callGeminiChat(messages){
 
     const retired = res.status===404 && /no longer available|not found for API version|is not found/i.test(msg);
     const highDemand = res.status === 429 || /resource_exhausted|quota|overloaded|high demand|too many requests/i.test(msg);
+    const authError = res.status === 401 || res.status === 403;
+    const modelIssue = !authError && res.status >= 400;
 
-    if(retired || highDemand){
+    if(retired || highDemand || modelIssue){
       triedModels.push(currentModel);
       const nextModel = FALLBACK_MODELS.map(m=>m.id).find(id => triedModels.indexOf(id) === -1);
       if(nextModel){
@@ -1288,6 +1292,16 @@ async function fileToInlinePart(file){
     reader.onerror = ()=> reject(new Error('Could not read file: ' + file.name));
     reader.readAsDataURL(file);
   });
+}
+
+async function handleUploadedFile(f){
+  const notesEl = document.getElementById('ns-notes');
+  if(notesEl) S.newSet.notesText = notesEl.value;
+
+  // Keep PPTX files as real attachments like images/PDFs so the model can inspect
+  // the original file instead of receiving a flattened text-only version.
+  const part = await fileToInlinePart(f);
+  S.newSet.files.push({ name: f.name, inline_data: part.inline_data });
 }
 
 const TYPE_LABELS = {
@@ -3244,8 +3258,8 @@ function renderNewSet(){
       '</div>' +
       '<div class="field">' +
         '<label class="field-label">Or attach study files (images / PDFs of notes)</label>' +
-        '<div class="dropzone" id="ns-dropzone">Drop image/PDF files here or click to browse</div>' +
-        '<input type="file" id="ns-fileinput" multiple accept="image/*,application/pdf" style="display:none" />' +
+        '<div class="dropzone" id="ns-dropzone">Drop image/PDF/PowerPoint files here or click to browse</div>' +
+        '<input type="file" id="ns-fileinput" multiple accept="image/*,application/pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" style="display:none" />' +
         (d.files && d.files.length ? 
           '<div class="upload-list">' +
             d.files.map((f,i)=>'<div class="upload-item"><span>' + esc(f.name) + '</span><button type="button" data-remove-file="' + i + '">Remove</button></div>').join('') +
@@ -4762,16 +4776,14 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       e.preventDefault(); dropzone.classList.remove('drag');
       const files = Array.from(e.dataTransfer.files);
       for(const f of files){
-        const part = await fileToInlinePart(f);
-        S.newSet.files.push({ name: f.name, inline_data: part.inline_data });
+        await handleUploadedFile(f);
       }
       render();
     };
     fileinput.onchange = async (e) => {
       const files = Array.from(e.target.files);
       for(const f of files){
-        const part = await fileToInlinePart(f);
-        S.newSet.files.push({ name: f.name, inline_data: part.inline_data });
+        await handleUploadedFile(f);
       }
       render();
     };
