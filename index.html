@@ -1075,7 +1075,7 @@ function computeWeakTopics(sess){
     topicMap[topic].total++;
     if(sess.gradedResults[qi] && sess.gradedResults[qi].correct) topicMap[topic].correct++;
   });
-  const DEFAULT_TYPE_COUNTS = { multiple_choice: 4, true_false: 2, short_answer: 3, fill_blank: 1 };
+  const DEFAULT_TYPE_COUNTS = { multiple_choice: 4, true_false: 2, short_answer: 3, fill_blank: 1, numerical: 0 };
 
 const COMPUTATIONAL_INSTRUCTION = 'This study set is in a computational subject. Where the material supports it, write actual computational/numeric practice problems requiring real calculation (solve for a value, compute a numeric result, apply a formula, work through a multi-step calculation) rather than purely conceptual or definition-based questions — mirror how an instructor in this subject would actually test problem-solving, not just recall.';
 
@@ -1348,9 +1348,10 @@ const TYPE_LABELS = {
   true_false: 'True or false',
   short_answer: 'Short answer',
   fill_blank: 'Fill in the blank',
+  numerical: 'Numerical (calculation)',
 };
 
-const DEFAULT_TYPE_COUNTS = { multiple_choice: 4, true_false: 2, short_answer: 3, fill_blank: 1 };
+const DEFAULT_TYPE_COUNTS = { multiple_choice: 4, true_false: 2, short_answer: 3, fill_blank: 1, numerical: 0 };
 
 const COMPUTATIONAL_INSTRUCTION = 'This study set is in a computational subject. Where the material supports it, write actual computational/numeric practice problems requiring real calculation (solve for a value, compute a numeric result, apply a formula, work through a multi-step calculation) rather than purely conceptual or definition-based questions — mirror how an instructor in this subject would actually test problem-solving, not just recall.';
 
@@ -1408,7 +1409,7 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
     '  "stickyNotes": [ { "title": string, "body": string } ],  // 6-12 revision notes, each title is a concept name, body is 1-3 sentences for an index card',
     '  "quiz": [',
     '    {',
-    '      "type": one of ["multiple_choice","true_false","short_answer","fill_blank"],',
+    '      "type": one of ["multiple_choice","true_false","short_answer","fill_blank","numerical"],',
     '      "topic": string,  // 2-4 word concept label this question tests, e.g. "Due Process", "Cell Mitosis"',
     '      "question": string,',
     '      "options": [string],  // only for multiple_choice: exactly 4 options',
@@ -1421,6 +1422,7 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
     'Generate exactly ' + count + ' quiz questions, using only these types: ' + typeList + '.',
     'Distribute types roughly evenly. Base every question strictly on the source material — nothing invented.',
     'For fill_blank, use "_____" in the question text; give the exact missing word/phrase as the answer.',
+    types.indexOf('numerical') !== -1 ? NUMERICAL_INSTRUCTION : '',
     'Calibrate difficulty for a ' + (level==='college'?'college':'high school') + ' student.',
     'Respond with JSON only.',
   ].filter(Boolean).join('\n');
@@ -1441,6 +1443,34 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
     S._insufficientMaterialWarning = false;
   }
   return result;
+}
+
+const NUMERICAL_INSTRUCTION = 'For questions of type "numerical": each must require calculating ONE final numeric value (a real worked calculation, not recall), and the question text must state the units wanted and the rounding (e.g. "to 2 decimal places") when relevant. For these, the "answer" field must contain ONLY the final number in plain digits (e.g. 12.5 or 3.2e-4) — no units, no words, no LaTeX, no dollar signs. Also add a "unit" field with the unit as plain text (empty string if unitless). Put a brief worked solution in the explanation/rubric field.';
+
+// Parses student/model numeric answers: 12.5, 12,5, 1,200.5, 3.2e-4, 3.2 x 10^-4, 3/4, "12.5 m/s", 45%
+function parseNumeric(raw){
+  if(raw === null || raw === undefined) return null;
+  let s = String(raw).trim().replace(/\$/g,'').replace(/[\u2212\u2013]/g,'-').replace(/\\times|\\cdot|[\u00d7\u00b7]/g,'*').replace(/\s+/g,' ');
+  s = s.replace(/(\d)\s*[xX]\s*(10\s*\^)/g,'$1*$2').replace(/\^\{([^}]*)\}/g,'^$1');
+  if(/^-?\d{1,3}(,\d{3})+(\.\d+)?/.test(s)) s = s.replace(/,/g,'');
+  else s = s.replace(/(\d),(\d)/g,'$1.$2');
+  let m = s.match(/^(-?\d*\.?\d+)?\s*\*?\s*10\s*\^\s*\(?(-?\d+)\)?/);
+  if(m){ const c = m[1] !== undefined ? parseFloat(m[1]) : 1; const v = c * Math.pow(10, parseInt(m[2],10)); return isFinite(v) ? v : null; }
+  m = s.match(/^(-?\d+\.?\d*)\s*\/\s*(\d+\.?\d*)/);
+  if(m){ const d = parseFloat(m[2]); if(d === 0) return null; return parseFloat(m[1]) / d; }
+  m = s.match(/^-?\d*\.?\d+(?:[eE][-+]?\d+)?/);
+  if(m){ const v = parseFloat(m[0]); return isFinite(v) ? v : null; }
+  return null;
+}
+function numericMatches(userAns, expected){
+  const u = parseNumeric(userAns), e = parseNumeric(expected);
+  if(u === null || e === null) return false;
+  const tol = e === 0 ? 0.005 : Math.abs(e) * 0.01;   // 1% tolerance covers rounding differences
+  return Math.abs(u - e) <= tol + 1e-12;
+}
+// numerical questions are graded locally; only fall back to the AI grader if the stored answer isn't a parseable number
+function needsAIQuizGrading(q){
+  return q.type === 'short_answer' || q.type === 'fill_blank' || q.type === 'true_false' || (q.type === 'numerical' && parseNumeric(q.answer) === null);
 }
 
 async function gradeShortAnswers(items, level){
@@ -1499,11 +1529,12 @@ async function generateQuizOnly({ title, notesSummary, level, typeCounts, recent
     'Difficulty instruction: ' + difficultyNote,
     'IMPORTANT: All text MUST be entirely in ' + targetLang + '.',
     '',
-    'Produce a JSON object: { "quiz": [ { "type": one of ["multiple_choice","true_false","short_answer","fill_blank"], "topic": string, "question": string, "options": [string] (4, only for multiple_choice), "answer": string, "explanation": string } ] }',
+    'Produce a JSON object: { "quiz": [ { "type": one of ["multiple_choice","true_false","short_answer","fill_blank","numerical"], "topic": string, "question": string, "options": [string] (4, only for multiple_choice), "answer": string, "explanation": string } ] }',
     'Generate exactly ' + count + ' NEW questions (do not repeat obvious prior phrasing), broken down EXACTLY as: ' + typeBreakdown + '. Do not deviate from these per-type counts.',
     computational ? COMPUTATIONAL_INSTRUCTION : '',
     avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
     'For fill_blank use "_____" in the question text.',
+    typeCounts.numerical ? NUMERICAL_INSTRUCTION : '',
     'Respond with JSON only.',
   ].filter(Boolean).join('\n');
   const res = await callGemini([{ text: prompt }]);
@@ -1651,9 +1682,10 @@ async function generateCustomTest({ title, notesSummary, level, typeCounts, leni
     'IMPORTANT: Write all test questions, rubrics, options, and related text entirely in ' + targetLang + '.',
     'Produce a JSON object: { "questions": [ { "type": one of [' + Object.keys(typeCounts).map(t=>'"'+t+'"').join(', ') + '], "question": string, "options": [string] (exactly 4, ONLY for multiple_choice), "answer": string, "rubric": string, "points": number } ] }.',
     'Write exactly ' + count + ' questions total, broken down EXACTLY as: ' + typeBreakdown + '. Use only these question types: ' + typeList + '.',
-    'For every question type, "answer" is the exact correct answer (for multiple_choice, exactly matching one of the options; for true_false, "True" or "False"; for fill_blank, the missing word/phrase; for short_answer, a model correct answer).',
+    'For every question type, "answer" is the exact correct answer (for multiple_choice, exactly matching one of the options; for true_false, "True" or "False"; for fill_blank, the missing word/phrase; for short_answer, a model correct answer; for numerical, only the final number).',
     'The "rubric" field should briefly describe what a full-credit answer needs to include, for grading purposes later; do not show it to the student. For multiple_choice and true_false, the rubric can simply restate why the correct answer is right.',
     'For fill_blank, use "_____" in the question text for the blank.',
+    typeCounts.numerical ? NUMERICAL_INSTRUCTION : '',
     avoidQuestions && avoidQuestions.length ? 'Do NOT reuse or lightly reword any of these existing questions: ' + JSON.stringify(avoidQuestions) : '',
     targetPoints ? ('This question is worth exactly ' + targetPoints + ' points — set "points" to ' + targetPoints + '.') : 'Points should sum to 100 across all questions, weighted by difficulty and depth expected.',
     'Respond with JSON only.',
@@ -2984,7 +3016,9 @@ async function regenerateQuestion(source, idx){
     if(source === 'quiz'){
       const results = await generateQuizOnly({
         title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
-        count: 1, types: [q.type], avoidQuestions: [q.question]
+        typeCounts: { [q.type]: 1 }, avoidQuestions: [q.question],
+        difficultyMode: 'dynamic', recentScores: getRecentScores(set, 3),
+        computational: isComputationalSubject(set.category)
       });
       newQ = results[0];
     } else if(source === 'test'){
@@ -2997,8 +3031,9 @@ async function regenerateQuestion(source, idx){
     } else { // customtest
       const results = await generateCustomTest({
         title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
-        count: 1, types: [q.type], leniency: sess.leniency, persona: sess.persona,
-        avoidQuestions: [q.question], targetPoints: q.points
+        typeCounts: { [q.type]: 1 }, leniency: sess.leniency, persona: sess.persona,
+        avoidQuestions: [q.question], targetPoints: q.points,
+        computational: isComputationalSubject(set.category)
       });
       newQ = results[0];
     }
@@ -3804,6 +3839,16 @@ function renderQuizQuestionInput(q, i, userAns){
       '</div>'
     );
   }
+  if(q.type === 'numerical'){
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; NUMERICAL</span>' + renderRegenerateBtn('quiz', i) + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<input type="text" inputmode="decimal" class="quiz-text-in" data-qidx="' + i + '" value="' + esc(userAns) + '" placeholder="Enter a number..." style="max-width:220px;" />' +
+        (q.unit ? '<span style="margin-left:8px; font-size:13.5px; color:var(--ink-soft);">' + esc(q.unit) + '</span>' : '') +
+      '</div>'
+    );
+  }
   return (
     '<div class="qcard">' +
       '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + '</span>' + renderRegenerateBtn('quiz', i) + '</div>' +
@@ -3824,7 +3869,7 @@ function renderQuizQuestionsReview(sess){
         '<div class="qnum">QUESTION ' + (i+1) + ' &bull; <span class="result-tag ' + tagClass + '">' + tagText + '</span>' + (q.topic ? ' &bull; ' + esc(q.topic) : '') + '</div>' +
         '<div class="qtext">' + esc(q.question) + '</div>' +
         '<div style="font-size:13.5px; margin-bottom:4px;">Your answer: <strong>' + esc(sess.answers[i]||'(no answer)') + '</strong></div>' +
-        (!res.correct ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + '</strong></div>' : '') +
+        (!res.correct ? '<div style="font-size:13.5px; margin-bottom:4px; color:var(--oxblood);">Expected answer: <strong>' + esc(q.answer) + (q.unit ? ' ' + esc(q.unit) : '') + '</strong></div>' : '') +
         (explanation ? '<div class="feedback-line">' + esc(explanation) + '</div>' : '') +
         renderStepSolutionBlock('quiz', i, q.question, q.answer) +
         (!res.correct ? '<button class="btn btn-quiet btn-sm" style="margin-top:8px;" data-ask-tutor="quiz" data-tutor-idx="' + i + '">Ask Tutor</button>' : '') +
@@ -4032,6 +4077,16 @@ function renderCustomTestQuestionInput(q, i, userAns){
       '</div>'
     );
   }
+  if(q.type === 'numerical'){
+    return (
+      '<div class="qcard">' +
+        '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; NUMERICAL ' + ptsLabel + '</span>' + renderRegenerateBtn('customtest', i) + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        '<input type="text" inputmode="decimal" class="ctest-text-in" data-qidx="' + i + '" value="' + esc(userAns) + '" placeholder="Enter a number..." style="max-width:220px;" />' +
+        (q.unit ? '<span style="margin-left:8px; font-size:13.5px; color:var(--ink-soft);">' + esc(q.unit) + '</span>' : '') +
+      '</div>'
+    );
+  }
   return (
     '<div class="qcard">' +
       '<div class="qnum-row"><span class="qnum">QUESTION ' + (i+1) + ' &bull; ' + (q.type==='fill_blank'?'FILL IN THE BLANK':'SHORT ANSWER') + ' ' + ptsLabel + '</span>' + renderRegenerateBtn('customtest', i) + '</div>' +
@@ -4049,7 +4104,7 @@ function renderCustomTestReview(sess){
     const partial = earned > 0 && earned < max;
     const tagClass = earned >= max ? 'correct' : partial ? 'partial' : 'incorrect';
     const tagText = earned.toFixed(1) + ' / ' + max + ' PTS';
-    const isObjective = q.type === 'multiple_choice' || q.type === 'true_false';
+    const isObjective = q.type === 'multiple_choice' || q.type === 'true_false' || q.type === 'numerical';
     return (
       '<div class="qcard">' +
         '<div class="qnum">QUESTION ' + (i+1) + ' &bull; <span class="result-tag ' + tagClass + '">' + tagText + '</span> &bull; ' + q.type.toUpperCase().replace('_',' ') + '</div>' +
@@ -5198,7 +5253,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       
       const shortItems = [];
       sess.questions.forEach((q, i) => {
-        if(q.type === 'short_answer' || q.type === 'fill_blank' || q.type === 'true_false'){
+        if(needsAIQuizGrading(q)){
           shortItems.push({ question: q.question, expected: q.answer, userAnswer: sess.answers[i] });
         }
       });
@@ -5219,10 +5274,14 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
 
         sess.questions.forEach((q, i) => {
           const userAns = (sess.answers[i] || '').trim();
-          if(q.type === 'short_answer' || q.type === 'fill_blank' || q.type === 'true_false'){
+          if(needsAIQuizGrading(q)){
             const g = gradedShort[shortCursor++] || { correct: false, feedback: '' };
             gradedResults[i] = g;
             if(g.correct) score++;
+          } else if(q.type === 'numerical'){
+            const correct = numericMatches(userAns, q.answer);
+            gradedResults[i] = { correct, feedback: q.explanation || (correct ? 'Correct.' : 'Expected: ' + q.answer + (q.unit ? ' ' + q.unit : '')) };
+            if(correct) score++;
           } else {
             const correct = userAns.toLowerCase() === q.answer.toLowerCase();
             gradedResults[i] = { correct, feedback: q.explanation || (correct ? 'Correct.' : 'Expected: ' + q.answer) };
@@ -5661,6 +5720,9 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           const userAns = (sess.answers[i] || '').trim();
           if(q.type === 'multiple_choice' || q.type === 'true_false'){
             const correct = userAns.toLowerCase() === (q.answer||'').toLowerCase();
+            gradedResults[i] = { pointsEarned: correct ? q.points : 0, feedback: q.rubric || '' };
+          } else if(q.type === 'numerical' && parseNumeric(q.answer) !== null){
+            const correct = numericMatches(userAns, q.answer);
             gradedResults[i] = { pointsEarned: correct ? q.points : 0, feedback: q.rubric || '' };
           } else {
             subjectiveIdxs.push(i);
