@@ -1141,6 +1141,49 @@ function requestModelFallback(failedModel, errorMsg) {
   });
 }
 
+// ---- Tolerant JSON parsing for model output containing LaTeX ----
+// Models often emit LaTeX like \frac, \sqrt, \( inside JSON strings with a single
+// backslash. That is either an invalid JSON escape ("bad escaped character") or a
+// silently wrong one (\frac -> form feed + "rac"). This repairs those cases.
+const LATEX_AMBIGUOUS_CMDS = /^(frac|dfrac|tfrac|times|theta|text|textbf|textit|tau|tan|top|to|beta|bar|begin|binom|bullet|boldsymbol|rightarrow|right|rho|rangle|rceil|rfloor|nu|neq|ne|nabla|not|notin|neg|ni|newline|forall|flat|phi|varphi|bmod|bigcup|bigcap|big|approx)(?![a-zA-Z])/;
+function repairJsonBackslashes(src){
+  let out = '', inStr = false;
+  for(let i = 0; i < src.length; i++){
+    const c = src[i];
+    if(!inStr){ if(c === '"') inStr = true; out += c; continue; }
+    if(c === '"'){ inStr = false; out += c; continue; }
+    if(c === '\n'){ out += '\\n'; continue; }
+    if(c === '\r'){ out += '\\r'; continue; }
+    if(c === '\t'){ out += '\\t'; continue; }
+    if(c !== '\\'){ out += c; continue; }
+    const n = src[i+1];
+    if(n === undefined){ out += '\\\\'; continue; }
+    if(n === '\\'){ out += '\\\\'; i++; continue; }          // already-escaped backslash
+    if(n === '"' || n === '/'){ out += '\\' + n; i++; continue; }
+    if(n === 'u' && /^[0-9a-fA-F]{4}$/.test(src.substr(i+2,4))){ out += '\\u'; i++; continue; }
+    if('bfnrt'.indexOf(n) !== -1){
+      // \n, \t etc. are real escapes unless they start a known LaTeX command
+      if(LATEX_AMBIGUOUS_CMDS.test(src.slice(i+1, i+20))){ out += '\\\\'; continue; }
+      out += '\\' + n; i++; continue;
+    }
+    out += '\\\\';                                              // any other backslash: literal
+  }
+  return out;
+}
+function parseModelJson(text){
+  const cleaned = String(text).replace(/```json/gi,'').replace(/```/g,'').trim();
+  try{ return JSON.parse(cleaned); }catch(e1){
+    try{ return JSON.parse(repairJsonBackslashes(cleaned)); }
+    catch(e2){
+      // last resort: extract the outermost JSON object/array
+      const a = cleaned.search(/[\[{]/);
+      const b = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
+      if(a !== -1 && b > a) return JSON.parse(repairJsonBackslashes(cleaned.slice(a, b+1)));
+      throw e2;
+    }
+  }
+}
+
 async function callGemini(parts, { jsonSchema=true } = {}){
   if(!S.apiKey){ throw new Error('No API key set. Add your Google AI Studio API key in Settings.'); }
   const originalModel = S.model || SAFE_FALLBACK_MODEL;
@@ -1174,11 +1217,7 @@ async function callGemini(parts, { jsonSchema=true } = {}){
       }
 
       if(!jsonSchema) return text;
-      try{ return JSON.parse(text); }
-      catch(e){
-        const cleaned = text.replace(/```json/gi,'').replace(/```/g,'').trim();
-        return JSON.parse(cleaned);
-      }
+      return parseModelJson(text);
     }
 
     let msg = '';
