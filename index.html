@@ -3333,6 +3333,7 @@ function renderNewSet(){
       '<div class="field">' +
         '<label class="field-label">Or attach study files (images / PDFs of notes)</label>' +
         '<div class="dropzone" id="ns-dropzone">Drop image/PDF/PowerPoint files here, click to browse, or paste a screenshot with Ctrl+V</div>' +
+        '<button type="button" class="btn btn-quiet btn-sm" id="ns-paste-btn" style="margin-top:8px;">Paste screenshot from clipboard</button>' +
         '<input type="file" id="ns-fileinput" multiple accept="image/*,application/pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" style="display:none" />' +
         (d.files && d.files.length ? 
           '<div class="upload-list">' +
@@ -4883,6 +4884,9 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     };
   }
 
+  const nsPasteBtn = document.getElementById('ns-paste-btn');
+  if(nsPasteBtn) nsPasteBtn.onclick = () => pasteImageFromClipboardButton();
+
   document.querySelectorAll('[data-remove-file]').forEach(el => {
     el.onclick = (e) => {
       const idx = parseInt(e.currentTarget.getAttribute('data-remove-file'));
@@ -5784,35 +5788,56 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
 }
 
 // Paste screenshots straight from the clipboard (Snipping Tool, Win+Shift+S, Cmd+Ctrl+Shift+4, copied images)
-document.addEventListener('paste', async (e) => {
+async function addPastedImageFiles(images){
+  const dz = document.getElementById('ns-dropzone');
+  if(dz) dz.textContent = 'Adding screenshot...';
+  let n = 0;
   try{
-    if(!document.getElementById('ns-dropzone')) return;           // only on the New Study Set screen
-    const cd = e.clipboardData;
-    if(!cd) return;
-    const images = [];
-    for(const item of Array.from(cd.items || [])){
-      if(item.kind === 'file' && item.type && item.type.indexOf('image/') === 0){
-        const f = item.getAsFile();
-        if(f) images.push(f);
-      }
-    }
-    if(!images.length) return;
-    const tag = (e.target && e.target.tagName) || '';
-    const typingInField = tag === 'TEXTAREA' || (tag === 'INPUT' && e.target.type !== 'file');
-    if(typingInField && cd.getData('text/plain')) return;         // normal text paste into notes/title
-    e.preventDefault();
-    let n = 0;
     for(const img of images){
       const ext = (img.type.split('/')[1] || 'png').replace('jpeg','jpg').replace(/[^a-z0-9]/gi,'');
       const named = new File([img], 'screenshot-' + new Date().toISOString().replace(/[:.]/g,'-').slice(0,19) + '-' + (++n) + '.' + ext, { type: img.type });
       await handleUploadedFile(named);
     }
-    render();
   }catch(err){
     console.error('Paste failed', err);
-    alert('Could not paste that image: ' + err.message);
+    alert('Could not add that image: ' + err.message);
   }
-});
+  render();
+}
+document.addEventListener('paste', (e) => {
+  if(!document.getElementById('ns-dropzone')) return;             // only on the New Study Set screen
+  const cd = e.clipboardData;
+  if(!cd) return;
+  const images = [];
+  for(const item of Array.from(cd.items || [])){
+    if(item.kind === 'file' && item.type && item.type.indexOf('image/') === 0){
+      const f = item.getAsFile();
+      if(f) images.push(f);
+    }
+  }
+  if(!images.length) return;
+  const tag = (e.target && e.target.tagName) || '';
+  const typingInField = tag === 'TEXTAREA' || (tag === 'INPUT' && e.target.type !== 'file');
+  if(typingInField && cd.getData('text/plain')) return;           // normal text paste into notes/title
+  e.preventDefault();
+  addPastedImageFiles(images);
+}, true);
+
+async function pasteImageFromClipboardButton(){
+  try{
+    if(!navigator.clipboard || !navigator.clipboard.read) throw new Error('This browser does not allow reading the clipboard from a button. Click the page and press Ctrl+V instead.');
+    const items = await navigator.clipboard.read();
+    const images = [];
+    for(const item of items){
+      const type = item.types.find(t => t.indexOf('image/') === 0);
+      if(type){ const blob = await item.getType(type); images.push(new File([blob], 'clip.' + (type.split('/')[1] || 'png'), { type })); }
+    }
+    if(!images.length){ alert('No image found on the clipboard. Take a snip first (Win+Shift+S), then try again.'); return; }
+    await addPastedImageFiles(images);
+  }catch(err){
+    alert('Could not read the clipboard: ' + err.message);
+  }
+}
 
 loadAll();
 
