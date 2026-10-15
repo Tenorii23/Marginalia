@@ -1,0 +1,36 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Background -->
+  <rect width="64" height="64" rx="16" fill="#111111"/>
+
+  <!-- Back page -->
+  <path
+    d="M18 14H40L48 22V50C48 51.1 47.1 52 46 52H18C16.9 52 16 51.1 16 50V16C16 14.9 16.9 14 18 14Z"
+    fill="#242424"
+  />
+
+  <!-- Page fold -->
+  <path
+    d="M40 14V22H48"
+    fill="#333333"
+  />
+
+  <!-- Big tomato M -->
+  <path
+    d="M21 43V25L32 38L43 25V43"
+    stroke="#FF6347"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Small margin detail -->
+  <path
+    d="M22 20H35"
+    stroke="#FF6347"
+    stroke-width="2"
+    stroke-linecap="round"
+    opacity="0.5"
+  />
+
+</svg>
