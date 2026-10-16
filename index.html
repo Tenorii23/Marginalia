@@ -4,7 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Marginalia Study App</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -600,6 +599,27 @@
   .timer-pin{ display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:14px; border:1px solid var(--rule-strong); padding: 4px 10px; }
   .timer-pin.timer-warn{ border-color:var(--oxblood); color:var(--oxblood); }
   .quiz-progress-label .timer-pin{ margin-left:auto; }
+  /* Teachings pager + editor */
+  .tch-pager{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:var(--sp-3); }
+  .tch-arrow{ background:transparent; border:1px solid var(--rule-strong); color:var(--ink); width:38px; height:34px; cursor:pointer; font-size:18px; line-height:1; }
+  .tch-arrow:hover{ background:var(--paper-raised); }
+  .tch-arrow[disabled]{ opacity:0.35; cursor:not-allowed; }
+  .tch-count{ font-family:var(--font-mono); font-size:11.5px; letter-spacing:0.5px; text-transform:uppercase; color:var(--ink-faint); text-align:center; flex:1; }
+  .tch-title{ font-family:var(--font-serif); font-size:18px; font-weight:600; margin:0 0 var(--sp-2); }
+  .tch-files{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:var(--sp-3); }
+  .tch-chip{ font-family:var(--font-mono); font-size:10.5px; color:var(--ink-faint); border:1px solid var(--rule-strong); padding:2px 7px; }
+  .tch-dots{ display:flex; justify-content:center; gap:6px; margin-top:var(--sp-3); }
+  .tch-dot{ width:8px; height:8px; border-radius:50%; background:var(--rule-strong); cursor:pointer; border:0; padding:0; }
+  .tch-dot.on{ background:var(--oxblood); }
+  .tch-card{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding:var(--sp-4); margin-bottom:var(--sp-4); }
+  .tch-card input[type=text], .tch-card textarea, .tch-card select{ width:100%; background:var(--paper); border:1px solid var(--rule-strong); color:var(--ink); font-family:var(--font-sans); font-size:13.5px; padding:8px 10px; }
+  .tch-card textarea{ min-height:150px; font-family:var(--font-serif); line-height:1.5; resize:vertical; }
+  .tch-filerow{ display:flex; align-items:center; gap:10px; margin:8px 0; }
+  .tch-filerow select{ width:auto; max-width:190px; }
+  .tch-thumb{ width:54px; height:54px; object-fit:cover; border:1px solid var(--rule-strong); flex:0 0 auto; background:var(--paper); }
+  .tch-thumb.doc{ display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); }
+  .tch-fname{ flex:1; font-size:12.5px; color:var(--ink-soft); word-break:break-all; }
+  .tch-note{ font-size:12.5px; color:var(--ink-faint); margin-bottom:var(--sp-3); line-height:1.5; }
 </style>
 </head>
 <body>
@@ -1377,6 +1397,250 @@ function getTargetLang(){
   return lang.charAt(0).toUpperCase() + lang.slice(1);
 }
 
+const PASTED_NOTES_LABEL = 'Pasted notes';
+// Summaries for sets with several teachings are stored in the same notes_summary text column using
+// marker lines, so no database change is needed:  @@TEACHING|Title|file1;file2@@  then the summary text.
+function markerSafe(x){ return String(x == null ? '' : x).replace(/[|@;\n\r]/g, ' ').trim(); }
+function parseSections(text){
+  const t = String(text || '');
+  if(t.indexOf('@@TEACHING|') === -1) return null;
+  const re = /@@TEACHING\|([^|\n]*)\|([^\n]*?)@@\n?/g;
+  const heads = []; let m;
+  while((m = re.exec(t)) !== null){
+    heads.push({ title: m[1].trim(), files: m[2] ? m[2].split(';').map(x => x.trim()).filter(Boolean) : [], start: m.index, end: re.lastIndex });
+  }
+  if(!heads.length) return null;
+  return heads.map((h, i) => ({
+    title: h.title || ('Teaching ' + (i + 1)),
+    files: h.files,
+    summary: t.slice(h.end, i + 1 < heads.length ? heads[i+1].start : t.length).trim()
+  }));
+}
+function getSections(set){
+  const secs = parseSections(set && set.notesSummary);
+  if(secs) return secs;
+  return [{ title: 'All notes', files: [], summary: String((set && set.notesSummary) || '') }];
+}
+function buildSummaryFromSections(secs){
+  const list = (secs || []).filter(x => x && (x.summary || '').trim());
+  if(!list.length) return '';
+  if(list.length === 1) return list[0].summary.trim();
+  return list.map((x, i) => '@@TEACHING|' + markerSafe(x.title || ('Teaching ' + (i+1))) + '|' + (x.files || []).map(markerSafe).join(';') + '@@\n' + x.summary.trim()).join('\n\n');
+}
+// Plain text of everything (for quizzes, tests, tutor, export) with no markers
+function plainNotes(text){
+  const secs = parseSections(text);
+  if(!secs) return String(text || '');
+  return secs.map(x => x.title + '\n' + x.summary).join('\n\n');
+}
+function normalizeGeneratedSections(result, files, hasNotes){
+  let secs = [];
+  if(result && Array.isArray(result.sections)){
+    secs = result.sections.map((sec, i) => {
+      const names = [];
+      (Array.isArray(sec.fileNumbers) ? sec.fileNumbers : []).forEach(n => {
+        const f = files[parseInt(n, 10) - 1];
+        if(f && names.indexOf(f.name) === -1) names.push(f.name);
+      });
+      if(sec.includesPastedNotes && hasNotes) names.push(PASTED_NOTES_LABEL);
+      return { title: String(sec.title || ('Teaching ' + (i+1))), files: names, summary: String(sec.summary || '').trim() };
+    }).filter(x => x.summary);
+  }
+  if(!secs.length) secs = [{ title: 'All notes', files: [], summary: String((result && result.notesSummary) || '').trim() }];
+  return secs;
+}
+function currentSectionIndex(set){
+  const n = getSections(set).length;
+  S.summaryIdx = S.summaryIdx || {};
+  const i = Math.max(0, Math.min(n - 1, S.summaryIdx[set.id] || 0));
+  S.summaryIdx[set.id] = i;
+  return i;
+}
+function currentSectionText(set){
+  const secs = getSections(set);
+  return secs[currentSectionIndex(set)].summary || '';
+}
+function fileThumbHtml(setId, name){
+  const src = S.sessionSources && S.sessionSources[setId];
+  const f = src && src.files ? src.files.find(x => x.name === name) : null;
+  if(f && f.inline_data && /^image\//.test(f.inline_data.mime_type || '')){
+    return '<img class="tch-thumb" alt="" src="data:' + f.inline_data.mime_type + ';base64,' + f.inline_data.data + '" />';
+  }
+  return '<div class="tch-thumb doc">' + (name === PASTED_NOTES_LABEL ? 'TXT' : 'FILE') + '</div>';
+}
+
+function renderSummaryBlock(set){
+  const secs = getSections(set);
+  if(S.editTeachings && S.editTeachings.setId === set.id) return renderTeachingEditor(set);
+  const idx = currentSectionIndex(set);
+  const sec = secs[idx];
+  const textHtml = S.activeRecallMode
+    ? '<div class="callout cloze-summary" style="white-space:pre-wrap; line-height:1.8; font-family:var(--font-serif); font-size:14.5px;">' + renderClozeSummary(set) + '</div>'
+    : '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px;">' + esc(sec.summary || '') + '</div>';
+  if(secs.length <= 1) return textHtml;
+  return (
+    '<div class="tch-pager">' +
+      '<button type="button" class="tch-arrow" data-sum-nav="-1" ' + (idx === 0 ? 'disabled' : '') + ' aria-label="Previous teaching">&#8592;</button>' +
+      '<div class="tch-count">Teaching ' + (idx + 1) + ' of ' + secs.length + '</div>' +
+      '<button type="button" class="tch-arrow" data-sum-nav="1" ' + (idx === secs.length - 1 ? 'disabled' : '') + ' aria-label="Next teaching">&#8594;</button>' +
+    '</div>' +
+    '<div class="tch-title">' + esc(sec.title) + '</div>' +
+    (sec.files.length ? '<div class="tch-files">' + sec.files.map(n => '<span class="tch-chip">' + esc(n) + '</span>').join('') + '</div>' : '') +
+    textHtml +
+    '<div class="tch-dots">' + secs.map((x, i) => '<button type="button" class="tch-dot' + (i === idx ? ' on' : '') + '" data-sum-goto="' + i + '" title="' + esc(x.title) + '"></button>').join('') + '</div>'
+  );
+}
+
+function renderTeachingEditor(set){
+  const ed = S.editTeachings;
+  const draft = ed.draft;
+  const hasSession = !!(S.sessionSources && S.sessionSources[set.id]);
+  return (
+    '<div class="tch-note">Teachings were detected automatically. If something landed in the wrong one, move it with the dropdown beside each file. ' +
+      (hasSession ? 'Then use &ldquo;Save &amp; rewrite changed summaries&rdquo; to have the summaries rebuilt from the moved files.' :
+        'The original files are only kept while this session is open, so here you can edit titles and summary text directly.') +
+    '</div>' +
+    draft.map((sec, ti) => (
+      '<div class="tch-card">' +
+        '<div style="display:flex; gap:8px; align-items:center; margin-bottom:var(--sp-3);">' +
+          '<input type="text" data-tch-title="' + ti + '" value="' + esc(sec.title) + '" placeholder="Teaching title" />' +
+          '<button type="button" class="btn btn-quiet btn-sm" data-tch-del="' + ti + '" ' + (draft.length <= 1 ? 'disabled' : '') + '>Delete</button>' +
+        '</div>' +
+        (sec.files.length ? sec.files.map((fn, fi) => (
+          '<div class="tch-filerow">' + fileThumbHtml(set.id, fn) +
+            '<div class="tch-fname">' + esc(fn) + '</div>' +
+            '<select data-tch-move="' + ti + ':' + fi + '" title="Move to teaching">' +
+              draft.map((o, oi) => '<option value="' + oi + '"' + (oi === ti ? ' selected' : '') + '>' + (oi === ti ? 'In: ' : 'Move to: ') + esc(o.title || ('Teaching ' + (oi + 1))) + '</option>').join('') +
+            '</select>' +
+          '</div>'
+        )).join('') : '<div class="tch-note" style="margin:0 0 var(--sp-3);">No files assigned to this teaching.</div>') +
+        '<textarea data-tch-text="' + ti + '">' + esc(sec.summary) + '</textarea>' +
+        (sec.changed ? '<div class="tch-note" style="margin-top:6px; color:var(--oxblood);">Files changed &mdash; summary will be rewritten when you choose &ldquo;Save &amp; rewrite&rdquo;.</div>' : '') +
+      '</div>'
+    )).join('') +
+    '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="tch-add">+ Add teaching</button>' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="tch-cancel">Cancel</button>' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="tch-save">Save</button>' +
+      (hasSession ? '<button type="button" class="btn btn-sm" id="tch-save-rewrite">Save &amp; rewrite changed summaries</button>' : '') +
+    '</div>'
+  );
+}
+
+function syncTeachingDraftFromDom(){
+  const ed = S.editTeachings; if(!ed) return;
+  document.querySelectorAll('[data-tch-title]').forEach(el => { const i = +el.getAttribute('data-tch-title'); if(ed.draft[i]) ed.draft[i].title = el.value; });
+  document.querySelectorAll('[data-tch-text]').forEach(el => { const i = +el.getAttribute('data-tch-text'); if(ed.draft[i]) ed.draft[i].summary = el.value; });
+}
+
+async function generateSectionSummary({ title, files, notesText, level }){
+  const prompt = [
+    'You are writing study notes for a ' + (level === 'college' ? 'college' : 'high school') + ' student.',
+    levelInstruction(level),
+    LATEX_INSTRUCTION,
+    'Write a clear, thorough, consolidated plain-text summary of ONLY the teaching titled "' + title + '", based strictly on the attached files and/or pasted notes below (they all belong to this one teaching).',
+    'It must be detailed enough to write a test from, no markup, roughly 250-700 words. Do not invent anything not in the sources.',
+    'Write it entirely in ' + getTargetLang() + '.',
+    'Respond with the summary text only — no JSON, no title line.'
+  ].join('\n');
+  const parts = [{ text: prompt }];
+  (files || []).forEach(f => parts.push({ inline_data: f.inline_data }));
+  if(notesText && notesText.trim()) parts.push({ text: 'Pasted notes:\n' + notesText });
+  const out = await callGemini(parts, { jsonSchema: false });
+  return String(out || '').replace(/^```[a-z]*\n?|```$/gi, '').trim();
+}
+
+async function saveTeachingEdits(set, rewrite){
+  const ed = S.editTeachings; if(!ed) return;
+  syncTeachingDraftFromDom();
+  let draft = ed.draft.map(x => ({ title: (x.title || '').trim() || 'Untitled teaching', files: x.files.slice(), summary: x.summary || '', changed: !!x.changed }));
+  const src = S.sessionSources && S.sessionSources[set.id];
+  let skipped = 0;
+  if(rewrite && src){
+    S.loading = true; S.loadingMsg = 'Rewriting changed teachings...'; render();
+    try{
+      for(const sec of draft){
+        if(!sec.changed) continue;
+        const fileObjs = sec.files.filter(n => n !== PASTED_NOTES_LABEL).map(n => src.files.find(f => f.name === n)).filter(Boolean);
+        const usesNotes = sec.files.indexOf(PASTED_NOTES_LABEL) !== -1 && src.notesText;
+        if(!fileObjs.length && !usesNotes){ skipped++; continue; }
+        sec.summary = await generateSectionSummary({ title: sec.title, files: fileObjs, notesText: usesNotes ? src.notesText : '', level: S.profile.level });
+        sec.changed = false;
+      }
+    }catch(e){
+      S.loading = false; render();
+      alert('Could not rewrite a summary: ' + e.message);
+      return;
+    }
+    S.loading = false;
+  }
+  draft = draft.filter(x => (x.summary || '').trim());
+  if(!draft.length){ alert('At least one teaching needs a summary.'); S.loading = false; render(); return; }
+  set.notesSummary = buildSummaryFromSections(draft);
+  await saveStudySet(set);
+  S.editTeachings = null;
+  S.summaryIdx = S.summaryIdx || {};
+  S.summaryIdx[set.id] = 0;
+  render();
+  if(skipped) alert(skipped + ' teaching(s) had no files available to rewrite from, so their text was kept as-is.');
+}
+
+function bindTeachingHandlers(){
+  const set = S.studySets.find(x => x.id === S.currentSetId);
+  if(!set) return;
+  document.querySelectorAll('[data-sum-nav]').forEach(el => {
+    el.onclick = () => {
+      const n = getSections(set).length;
+      S.summaryIdx = S.summaryIdx || {};
+      S.summaryIdx[set.id] = Math.max(0, Math.min(n - 1, currentSectionIndex(set) + parseInt(el.getAttribute('data-sum-nav'), 10)));
+      render();
+    };
+  });
+  document.querySelectorAll('[data-sum-goto]').forEach(el => {
+    el.onclick = () => { S.summaryIdx = S.summaryIdx || {}; S.summaryIdx[set.id] = parseInt(el.getAttribute('data-sum-goto'), 10); render(); };
+  });
+  const editBtn = document.getElementById('edit-teachings');
+  if(editBtn) editBtn.onclick = () => {
+    const secs = getSections(set);
+    S.editTeachings = { setId: set.id, draft: secs.map(x => ({ title: x.title, files: x.files.slice(), summary: x.summary, changed: false })) };
+    render();
+  };
+  if(!S.editTeachings || S.editTeachings.setId !== set.id) return;
+  const ed = S.editTeachings;
+  document.querySelectorAll('[data-tch-move]').forEach(el => {
+    el.onchange = () => {
+      syncTeachingDraftFromDom();
+      const [ti, fi] = el.getAttribute('data-tch-move').split(':').map(Number);
+      const to = parseInt(el.value, 10);
+      if(to === ti || !ed.draft[to]) return;
+      const fname = ed.draft[ti].files.splice(fi, 1)[0];
+      if(ed.draft[to].files.indexOf(fname) === -1) ed.draft[to].files.push(fname);
+      ed.draft[ti].changed = true; ed.draft[to].changed = true;
+      render();
+    };
+  });
+  document.querySelectorAll('[data-tch-del]').forEach(el => {
+    el.onclick = () => {
+      syncTeachingDraftFromDom();
+      const ti = parseInt(el.getAttribute('data-tch-del'), 10);
+      if(ed.draft.length <= 1) return;
+      const removed = ed.draft.splice(ti, 1)[0];
+      const target = ed.draft[Math.max(0, ti - 1)];
+      removed.files.forEach(f => { if(target.files.indexOf(f) === -1) target.files.push(f); });
+      if(removed.files.length) target.changed = true;
+      render();
+    };
+  });
+  const add = document.getElementById('tch-add');
+  if(add) add.onclick = () => { syncTeachingDraftFromDom(); ed.draft.push({ title: 'New teaching', files: [], summary: '', changed: false }); render(); };
+  const cancel = document.getElementById('tch-cancel');
+  if(cancel) cancel.onclick = () => { S.editTeachings = null; render(); };
+  const save = document.getElementById('tch-save');
+  if(save) save.onclick = () => saveTeachingEdits(set, false);
+  const saveRw = document.getElementById('tch-save-rewrite');
+  if(saveRw) saveRw.onclick = () => saveTeachingEdits(set, true);
+}
+
 async function generateStudyMaterials({ title, notesText, files, level, count, types, recentScores }){
   const typeList = types.map(t=>TYPE_LABELS[t]).join(', ');
   const targetLang = getTargetLang();
@@ -1396,7 +1660,7 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
     'Source material follows below as pasted notes and/or attached files (images or PDFs of notes).',
     'Read everything carefully before writing anything.',
     '',
-    'IMPORTANT: All generated text content (notesSummary, stickyNotes, quiz questions, options, answers, explanations) MUST be entirely in ' + targetLang + '.',
+    'IMPORTANT: All generated text content (section titles and summaries, stickyNotes, quiz questions, options, answers, explanations) MUST be entirely in ' + targetLang + '.',
     '',
     'First assess whether there is enough source material to generate ' + count + ' meaningful questions. Set "sufficientMaterial" to false if notes are too sparse (under ~100 words and no files), otherwise true.',
     '',
@@ -1406,7 +1670,7 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
     '{',
     '  "sufficientMaterial": boolean,',
     '  "category": string,  // short academic subject classification, e.g. "Chemistry", "World History", "Calculus", "Spanish", "Biology", "Computer Science" — pick the single best-fitting subject, use "General" only if genuinely unclear',
-    '  "notesSummary": string,  // clear, consolidated plain-text write-up, thorough enough to write a test from, no markup, 300-900 words',
+    '  "sections": [ { "title": string, "fileNumbers": [integer], "includesPastedNotes": boolean, "summary": string } ],  // one entry per distinct teaching, see rules below',
     '  "stickyNotes": [ { "title": string, "body": string } ],  // 6-12 revision notes, each title is a concept name, body is 1-3 sentences for an index card',
     '  "quiz": [',
     '    {',
@@ -1420,6 +1684,7 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
     '  ]',
     '}',
     '',
+    'SECTION RULES: Detect how many distinct teachings (separate lessons, lectures, chapters or topics from the class) the source material covers. If there are 2 or more, create one section per teaching in a logical order, and give EACH its own complete, thorough summary (about 250-700 words, plain text, no markup, detailed enough to write a test from). Never merge or compress different teachings into one short summary. If everything is a single teaching, return exactly 1 section. Use at most 10 sections and a short title (2-6 words) for each. Attached files are labelled [File 1: name], [File 2: name]...; list the numbers of the files that belong to each teaching in fileNumbers (a file may appear in more than one section only if it genuinely covers both), and set includesPastedNotes to true if the pasted notes belong to that teaching.',
     'Generate exactly ' + count + ' quiz questions, using only these types: ' + typeList + '.',
     'Distribute types roughly evenly. Base every question strictly on the source material — nothing invented.',
     'For fill_blank, use "_____" in the question text; give the exact missing word/phrase as the answer.',
@@ -1430,7 +1695,10 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
 
   const parts = [{ text: prompt }];
   if(files && files.length){
-    for(const f of files) parts.push({ inline_data: f.inline_data });
+    files.forEach((f, i) => {
+      parts.push({ text: '[File ' + (i + 1) + ': ' + (f.name || ('file-' + (i + 1))) + ']' });
+      parts.push({ inline_data: f.inline_data });
+    });
   }
   if(notesText && notesText.trim()){
     parts.push({ text: 'Pasted notes:\n' + notesText });
@@ -2910,7 +3178,7 @@ async function generateComprehensiveTest({ sets, level, count, leniency, persona
     lenient: 'Grading will be LENIENT — write rubrics focused on core understanding, forgiving of minor gaps or imprecision.'
   }[leniency || 'standard'];
   const personaNote = persona && persona.trim() ? ('Write questions in the voice/spirit of this examiner persona: "' + persona.trim() + '".') : '';
-  const combinedMaterial = sets.map(s => '=== ' + s.title + ' (' + (s.category||'General') + ') ===\n' + s.notesSummary).join('\n\n');
+  const combinedMaterial = sets.map(s => '=== ' + s.title + ' (' + (s.category||'General') + ') ===\n' + plainNotes(s.notesSummary)).join('\n\n');
   const prompt = [
     'Write a cumulative, comprehensive exam for a ' + (level==='college'?'college':'high school') + ' student covering ALL of the following study units together, based only on the material below:',
     levelInstruction(level),
@@ -3016,7 +3284,7 @@ async function regenerateQuestion(source, idx){
     let newQ;
     if(source === 'quiz'){
       const results = await generateQuizOnly({
-        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        title: set.title, notesSummary: plainNotes(set.notesSummary), level: S.profile.level,
         typeCounts: { [q.type]: 1 }, avoidQuestions: [q.question],
         difficultyMode: 'dynamic', recentScores: getRecentScores(set, 3),
         computational: isComputationalSubject(set.category)
@@ -3024,14 +3292,14 @@ async function regenerateQuestion(source, idx){
       newQ = results[0];
     } else if(source === 'test'){
       const result = await generateTest({
-        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        title: set.title, notesSummary: plainNotes(set.notesSummary), level: S.profile.level,
         count: 1, leniency: sess.leniency, persona: sess.persona,
         avoidQuestions: [q.question], targetPoints: q.points
       });
       newQ = result.questions[0];
     } else { // customtest
       const results = await generateCustomTest({
-        title: set.title, notesSummary: set.notesSummary, level: S.profile.level,
+        title: set.title, notesSummary: plainNotes(set.notesSummary), level: S.profile.level,
         typeCounts: { [q.type]: 1 }, leniency: sess.leniency, persona: sess.persona,
         avoidQuestions: [q.question], targetPoints: q.points,
         computational: isComputationalSubject(set.category)
@@ -3300,7 +3568,7 @@ function renderExploreDetail(pub){
       : '<div class="callout" style="margin-bottom:var(--sp-5); font-size:13px;">The author made this view-only &mdash; you can read through it here, but it can\'t be added to your own study sets.</div>'
     ) +
     '<h3 style="margin-bottom:var(--sp-3)">Notes Summary</h3>' +
-    '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px; margin-bottom:var(--sp-6);">' + esc(pub.notes_summary||'') + '</div>' +
+    '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px; margin-bottom:var(--sp-6);">' + esc(plainNotes(pub.notes_summary||'')) + '</div>' +
     (pub.sticky_notes && pub.sticky_notes.length ? (
       '<h3 style="margin-bottom:var(--sp-3)">Sticky Notes</h3>' +
       '<div class="notes-grid" style="margin-bottom:var(--sp-6);">' +
@@ -3447,12 +3715,12 @@ function renderTabNotes(set){
       '<div>' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-3);">' +
           '<h3>Consolidated Notes Summary</h3>' +
-          '<button class="btn btn-quiet btn-sm" id="toggle-active-recall">' + (S.activeRecallMode ? 'Show full text' : 'Active Recall Mode') + '</button>' +
+          '<div style="display:flex; gap:8px;">' +
+            '<button class="btn btn-quiet btn-sm" id="edit-teachings">Edit teachings</button>' +
+            '<button class="btn btn-quiet btn-sm" id="toggle-active-recall">' + (S.activeRecallMode ? 'Show full text' : 'Active Recall Mode') + '</button>' +
+          '</div>' +
         '</div>' +
-        (S.activeRecallMode
-          ? '<div class="callout cloze-summary" style="white-space:pre-wrap; line-height:1.8; font-family:var(--font-serif); font-size:14.5px;">' + renderClozeSummary(set) + '</div>'
-          : '<div class="callout" style="white-space:pre-wrap; line-height:1.6; font-family:var(--font-serif); font-size:14.5px;">' + esc(set.notesSummary||'') + '</div>'
-        ) +
+        renderSummaryBlock(set) +
       '</div>' +
     '</div>'
   );
@@ -3492,7 +3760,7 @@ function exportSetToPdf(set){
     '<h1>' + esc(set.title) + '</h1>',
     '<div class="meta">' + esc(set.category || 'General') + ' &bull; Exported ' + new Date().toLocaleDateString() + ' &bull; Marginalia</div>',
     '<h2>Notes Summary</h2>',
-    '<div class="summary">' + esc(set.notesSummary || '') + '</div>',
+    '<div class="summary">' + esc(plainNotes(set.notesSummary || '')) + '</div>',
     (notesHtml ? ('<h2>Revision Sticky Notes</h2><div class="pdf-grid">' + notesHtml + '</div>') : ''),
     // Auto-print lives INSIDE the generated page itself (not the opener) so it
     // reliably fires regardless of cross-window timing/communication quirks.
@@ -3515,7 +3783,7 @@ function exportSetToPdf(set){
 }
 
 function renderClozeSummary(set){
-  const text = set.notesSummary || '';
+  const text = currentSectionText(set);
   const terms = (set.stickyNotes || []).map(sn => sn.title).filter(t => t && t.trim().length > 1);
   if(!terms.length) return esc(text);
   const sorted = terms.slice().sort((a,b) => b.length - a.length);
@@ -4919,18 +5187,19 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         const result = await generateStudyMaterials({
           title,
           notesText,
-          files: S.newSet.files ? S.newSet.files.map(f=>({ inline_data: f.inline_data })) : [],
+          files: S.newSet.files ? S.newSet.files.map(f=>({ name: f.name, inline_data: f.inline_data })) : [],
           level,
           count,
           types
         });
 
+        const generatedSections = normalizeGeneratedSections(result, S.newSet.files || [], !!notesText);
         const newSet = {
           id: uid(),
           title,
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          notesSummary: result.notesSummary,
+          notesSummary: buildSummaryFromSections(generatedSections),
           category: result.category || 'General',
           stickyNotes: (result.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
           quiz: result.quiz,
@@ -4938,6 +5207,10 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         };
 
         await saveStudySet(newSet);
+        S.sessionSources = S.sessionSources || {};
+        S.sessionSources[newSet.id] = { files: (S.newSet.files || []).slice(), notesText };
+        S.summaryIdx = S.summaryIdx || {};
+        S.summaryIdx[newSet.id] = 0;
         S.currentSetId = newSet.id;
         S.currentTab = 'notes';
         S.route = 'set';
@@ -5018,6 +5291,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
     };
   }
 
+  bindTeachingHandlers();
   const toggleActiveRecall = document.getElementById('toggle-active-recall');
   if(toggleActiveRecall){
     toggleActiveRecall.onclick = () => {
@@ -5146,7 +5420,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         const existingTitles = set.stickyNotes.map(sn=>sn.title);
         const more = await generateMoreStickyNotes({
           title: set.title,
-          notesSummary: set.notesSummary,
+          notesSummary: plainNotes(set.notesSummary),
           level: S.profile.level,
           existingTitles,
           count: 8
@@ -5194,7 +5468,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
         const recentScores = getRecentScores(set, 3);
         const questions = await generateQuizOnly({
           title: set.title,
-          notesSummary: set.notesSummary,
+          notesSummary: plainNotes(set.notesSummary),
           level: S.profile.level,
           typeCounts, recentScores, difficultyMode, computational
         });
@@ -5509,7 +5783,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       render();
 
       try{
-        const res = await generateTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, count, leniency, persona, computational });
+        const res = await generateTest({ title: set.title, notesSummary: plainNotes(set.notesSummary), level: S.profile.level, count, leniency, persona, computational });
         const totalPoints = res.questions.reduce((acc,q)=>acc+q.points, 0);
         S.testSession = {
           questions: res.questions,
@@ -5650,7 +5924,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       render();
 
       try{
-        const questions = await generateCustomTest({ title: set.title, notesSummary: set.notesSummary, level: S.profile.level, typeCounts, leniency, persona, computational });
+        const questions = await generateCustomTest({ title: set.title, notesSummary: plainNotes(set.notesSummary), level: S.profile.level, typeCounts, leniency, persona, computational });
         const totalPoints = questions.reduce((acc,q)=>acc+q.points, 0);
         S.customTestSession = {
           questions,
@@ -5839,6 +6113,19 @@ async function pasteImageFromClipboardButton(){
     alert('Could not read the clipboard: ' + err.message);
   }
 }
+
+// Left/right arrow keys flip through teachings on the notes tab
+document.addEventListener('keydown', (e) => {
+  if(e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  if(S.route !== 'set' || S.currentTab !== 'notes' || S.editTeachings) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target && e.target.isContentEditable)) return;
+  const set = S.studySets.find(x => x.id === S.currentSetId);
+  if(!set || getSections(set).length <= 1) return;
+  const n = getSections(set).length;
+  S.summaryIdx[set.id] = Math.max(0, Math.min(n - 1, currentSectionIndex(set) + (e.key === 'ArrowRight' ? 1 : -1)));
+  render();
+});
 
 loadAll();
 
