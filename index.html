@@ -159,7 +159,10 @@
   }
   .tab.active{ color: var(--ink); border-bottom-color: var(--oxblood); }
   .tab:hover{ color: var(--ink); }
-
+html { scrollbar-width: none; }               /* Firefox */
+html::-webkit-scrollbar { display: none; }    /* Chrome, Edge, Safari */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
   .qcard{ border-top: 1px solid var(--rule); padding: var(--sp-5) 0; }
   .qcard:last-child{ border-bottom: 1px solid var(--rule); }
   .qnum{ font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint); margin-bottom: var(--sp-2); }
