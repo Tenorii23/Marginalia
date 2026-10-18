@@ -159,10 +159,7 @@
   }
   .tab.active{ color: var(--ink); border-bottom-color: var(--oxblood); }
   .tab:hover{ color: var(--ink); }
-html { scrollbar-width: none; }               /* Firefox */
-html::-webkit-scrollbar { display: none; }    /* Chrome, Edge, Safari */
-* { scrollbar-width: none; }
-*::-webkit-scrollbar { display: none; }
+
   .qcard{ border-top: 1px solid var(--rule); padding: var(--sp-5) 0; }
   .qcard:last-child{ border-bottom: 1px solid var(--rule); }
   .qnum{ font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint); margin-bottom: var(--sp-2); }
@@ -931,7 +928,7 @@ async function loadAll(){
           id: s.id,
           title: s.title,
           notesSummary: s.notes_summary,
-          category: s.category || 'General',
+          category: normalizeCategory(s.category),
           tags: Array.isArray(s.tags) ? s.tags : [],
           clonedFromTitle: s.cloned_from_title || null,
           clonedFromAuthor: s.cloned_from_author || null,
@@ -1000,7 +997,7 @@ async function checkAndRunLocalStorageMigration(userId){
           user_id: userId,
           title: setObj.title,
           notes_summary: setObj.notesSummary,
-          category: setObj.category || 'General',
+          category: normalizeCategory(setObj.category),
           tags: setObj.tags || [],
           created_at: new Date(setObj.createdAt || Date.now()).toISOString(),
           updated_at: new Date(setObj.updatedAt || Date.now()).toISOString()
@@ -1119,7 +1116,7 @@ async function saveStudySet(set){
     user_id: userId,
     title: set.title,
     notes_summary: set.notesSummary,
-    category: set.category || 'General',
+    category: normalizeCategory(set.category),
     tags: set.tags || [],
     cloned_from_title: set.clonedFromTitle || null,
     cloned_from_author: set.clonedFromAuthor || null,
@@ -1520,6 +1517,29 @@ function getTargetLang(){
   return lang.charAt(0).toUpperCase() + lang.slice(1);
 }
 
+// Subjects are always stored in English so "Kimi", "Kimia" and "Chemistry" all land in ONE group.
+const CATEGORY_ALIASES = [
+  [/^(chemistry|chem|kimi|kimia|kimie)\b/, 'Chemistry'],
+  [/^(biology|biologji|biologjia)\b/, 'Biology'],
+  [/^(history|histori|historia)$/, 'History'],
+  [/^(physics|fizike|fizika)\b/, 'Physics'],
+  [/^(mathematics|math|maths|matematike|matematika)$/, 'Mathematics'],
+  [/^(civic education|civics|civic|edukate qytetare|edukata qytetare|qytetari)\b/, 'Civic Education'],
+  [/^(albanian|albanian language|gjuhe shqipe|gjuha shqipe|shqip)\b/, 'Albanian Language'],
+  [/^(english|english language|anglisht|gjuhe angleze|gjuha angleze)\b/, 'English'],
+  [/^(geography|gjeografi|gjeografia)\b/, 'Geography'],
+  [/^(literature|letersi|letersia)\b/, 'Literature'],
+  [/^(computer science|informatike|informatika|cs)\b/, 'Computer Science'],
+  [/^(general|e pergjithshme|pergjithshme)$/, 'General'],
+];
+function normalizeCategory(raw){
+  const c = String(raw == null ? '' : raw).trim();
+  if(!c) return 'General';
+  const k = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  for(const [re, name] of CATEGORY_ALIASES){ if(re.test(k)) return name; }
+  return c.replace(/\b([a-z])/g, (m, ch) => ch.toUpperCase());   // consistent capitalisation for everything else
+}
+
 const PASTED_NOTES_LABEL = 'Pasted notes';
 // Summaries for sets with several teachings are stored in the same notes_summary text column using
 // marker lines, so no database change is needed:  @@TEACHING|Title|file1;file2@@  then the summary text.
@@ -1747,6 +1767,11 @@ document.addEventListener('keydown', (e) => { if(e.key === 'Escape' && modalLaye
 // HOW TO ADD AN UPDATE: put a NEW entry at the TOP of APP_UPDATES with a NEW unique id.
 // Visitors who dismissed the previous popup will see the popup again because the top id changed.
 const APP_UPDATES = [
+  { id: '2026-10-18-subjects', date: 'Oct 18, 2026', title: 'Consistent subject names',
+    items: [
+      'Subjects are now always assigned in English, so a Chemistry set is never split into \u201cKimi\u201d and \u201cChemistry\u201d again.',
+      'Sets you already have with mixed-language subject names are merged automatically in your list and in \u201cGroup by subject\u201d.'
+    ] },
   { id: '2026-10-18-regenerate', date: 'Oct 18, 2026', title: 'Regenerate a study set',
     items: [
       'New <b>Regenerate</b> button on a set\u2019s Notes tab: it re-reads the files you originally uploaded and rebuilds the set. You choose what to redo: notes summary, sticky notes and/or starter quiz questions.',
@@ -1908,7 +1933,7 @@ async function runRegenerate(set, opts, extraFiles){
       });
     }
     if(opts.quiz && Array.isArray(result.quiz) && result.quiz.length) set.quiz = result.quiz;
-    if((!set.category || set.category === 'General') && result.category) set.category = result.category;
+    if((!set.category || set.category === 'General') && result.category) set.category = normalizeCategory(result.category);
     await saveStudySet(set);
     S.sessionSources = S.sessionSources || {};
     S.sessionSources[set.id] = { files: files.map(f => ({ name: f.name, inline_data: f.inline_data, path: f.path || null, mime: f.mime })), notesText };
@@ -2007,7 +2032,7 @@ async function generateStudyMaterials({ title, notesText, files, level, count, t
     'Source material follows below as pasted notes and/or attached files (images or PDFs of notes).',
     'Read everything carefully before writing anything.',
     '',
-    'IMPORTANT: All generated text content (section titles and summaries, stickyNotes, quiz questions, options, answers, explanations) MUST be entirely in ' + targetLang + '.',
+    'IMPORTANT: The "category" field must ALWAYS be in English (e.g. "Chemistry", never "Kimi" or "Kimia"), whatever language the notes or output are in. All OTHER generated text content (section titles and summaries, stickyNotes, quiz questions, options, answers, explanations) MUST be entirely in ' + targetLang + '.',
     '',
     'First assess whether there is enough source material to generate ' + count + ' meaningful questions. Set "sufficientMaterial" to false if notes are too sparse (under ~100 words and no files), otherwise true.',
     '',
@@ -3839,7 +3864,7 @@ async function cloneExploreSet(pub){
     createdAt: Date.now(),
     updatedAt: Date.now(),
     notesSummary: pub.notes_summary,
-    category: pub.category || 'General',
+    category: normalizeCategory(pub.category),
     stickyNotes: (pub.sticky_notes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
     quiz: pub.quiz || [],
     history: [],
@@ -5609,7 +5634,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           createdAt: Date.now(),
           updatedAt: Date.now(),
           notesSummary: withSourcesMeta(buildSummaryFromSections(generatedSections), { files: (S.newSet.files || []).filter(f => f.path).map(f => ({ path: f.path, name: f.name, mime: f.mime })), notes: notesText }),
-          category: result.category || 'General',
+          category: normalizeCategory(result.category),
           stickyNotes: (result.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
           quiz: result.quiz,
           history: []
