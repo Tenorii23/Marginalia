@@ -58,8 +58,6 @@
 
   *{ box-sizing: border-box; }
   html,body{ margin:0; padding:0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); }
-  html{ scrollbar-width: none; }
-  html::-webkit-scrollbar{ display: none; }
 
   h1,h2,h3,h4{ font-family: var(--font-serif); font-weight: 600; margin: 0; color: var(--ink); }
   p{ margin: 0; }
@@ -390,8 +388,6 @@
     .landing-cta-row{ flex-direction: column; }
     .landing-cta-row .btn{ width: 100%; }
     .feature-grid{ grid-template-columns: 1fr; }
-    * { scrollbar-width: none; }
-*::-webkit-scrollbar { display: none; }
 
     .notes-grid{ grid-template-columns: 1fr; }
 
@@ -1324,17 +1320,46 @@ function parseModelJson(text){
   }
 }
 
+// Last resort for malformed model JSON: keep the longest valid prefix (e.g. all questions before the glitch).
+function salvagePartialJson(text){
+  const src = String(text).replace(/```json/gi, '').replace(/```/g, '').trim();
+  const start = src.search(/[\[{]/);
+  if(start === -1) return null;
+  const body = src.slice(start);
+  const cands = [];
+  const stack = []; let inStr = false, esc = false;
+  for(let i = 0; i < body.length; i++){
+    const c = body[i];
+    if(inStr){ if(esc) esc = false; else if(c === '\\') esc = true; else if(c === '"') inStr = false; continue; }
+    if(c === '"'){ inStr = true; continue; }
+    if(c === '{') stack.push('}');
+    else if(c === '[') stack.push(']');
+    else if(c === '}' || c === ']'){ stack.pop(); cands.push({ i, closers: stack.slice().reverse().join('') }); }
+  }
+  let tries = 0;
+  for(let k = cands.length - 1; k >= 0 && tries < 600; k--, tries++){
+    const cand = body.slice(0, cands[k].i + 1) + cands[k].closers;
+    try{
+      const obj = JSON.parse(repairJsonBackslashes(cand));
+      const hasContent = Array.isArray(obj) ? obj.length > 0 : Object.keys(obj).some(key => !Array.isArray(obj[key]) || obj[key].length > 0);
+      if(hasContent) return obj;
+    }catch(e){}
+  }
+  return null;
+}
+
 async function callGemini(parts, { jsonSchema=true } = {}){
   if(!S.apiKey){ throw new Error('No API key set. Add your Google AI Studio API key in Settings.'); }
   const originalModel = S.model || SAFE_FALLBACK_MODEL;
   let triedModels = [];
   let currentModel = originalModel;
+  let parseFailures = 0;
 
   while(true){
     const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + currentModel + ':generateContent?key=' + encodeURIComponent(S.apiKey);
     const body = {
       contents: [{ role: 'user', parts }],
-      generationConfig: jsonSchema ? { responseMimeType: 'application/json', temperature: 0.4 } : { temperature: 0.4 }
+      generationConfig: jsonSchema ? { responseMimeType: 'application/json', temperature: parseFailures ? 0.2 : 0.4 } : { temperature: 0.4 }
     };
     let res;
     try{
@@ -1357,7 +1382,15 @@ async function callGemini(parts, { jsonSchema=true } = {}){
       }
 
       if(!jsonSchema) return text;
-      return parseModelJson(text);
+      try{ return parseModelJson(text); }
+      catch(parseErr){
+        parseFailures++;
+        console.warn('Model returned malformed JSON (attempt ' + parseFailures + '):', parseErr.message);
+        if(parseFailures <= 2) continue;                 // the glitch is random, so just ask again
+        const salvaged = salvagePartialJson(text);
+        if(salvaged) return salvaged;
+        throw new Error('The AI sent back malformed data three times in a row. Please try again in a moment.');
+      }
     }
 
     let msg = '';
@@ -1771,6 +1804,11 @@ document.addEventListener('keydown', (e) => { if(e.key === 'Escape' && modalLaye
 // HOW TO ADD AN UPDATE: put a NEW entry at the TOP of APP_UPDATES with a NEW unique id.
 // Visitors who dismissed the previous popup will see the popup again because the top id changed.
 const APP_UPDATES = [
+  { id: '2026-10-18-exam-retry', date: 'Oct 18, 2026', title: 'Fix for exam generation errors',
+    items: [
+      'Fixed \u201cExam generation failed: Expected \u2018:\u2019 after property name in JSON\u201d when building a Comprehensive Exam.',
+      'If the AI ever sends back a garbled answer, the app now quietly asks again (up to 3 tries) instead of showing an error. This protects quizzes, tests, grading and every other generation step too.'
+    ] },
   { id: '2026-10-18-subjects', date: 'Oct 18, 2026', title: 'Consistent subject names',
     items: [
       'Subjects are now always assigned in English, so a Chemistry set is never split into \u201cKimi\u201d and \u201cChemistry\u201d again.',
