@@ -684,6 +684,27 @@
     .ld-logo, .ld-m, .ld-ring, .ld-bar i, #root.rt{ animation:none !important; }
     .ld-m{ stroke-dashoffset:0; }
   }
+  /* Modal layer (update popup + regenerate dialog) */
+  .md-layer{ position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(10,10,10,0); opacity:0; backdrop-filter:blur(0px); -webkit-backdrop-filter:blur(0px); transition: background .35s ease, opacity .35s ease, backdrop-filter .35s ease, -webkit-backdrop-filter .35s ease; }
+  .md-layer.show{ background:rgba(10,10,10,.62); opacity:1; backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); }
+  .md-card{ width:100%; max-width:540px; max-height:84vh; overflow-y:auto; background:var(--paper); color:var(--ink); border:1px solid var(--rule-strong); padding:var(--sp-5); transform:translateY(16px) scale(.97); opacity:0; transition: transform .5s cubic-bezier(.2,.9,.2,1), opacity .35s ease; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+  .md-layer.show .md-card{ transform:none; opacity:1; }
+  .md-card h3{ font-family:var(--font-serif); font-size:21px; margin:0 0 4px; }
+  .md-kicker{ font-family:var(--font-mono); font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:var(--oxblood); margin-bottom:6px; }
+  .md-sub{ font-size:13px; color:var(--ink-soft); line-height:1.5; margin:0 0 var(--sp-4); }
+  .md-list{ margin:0 0 var(--sp-4); padding-left:18px; font-size:13.5px; line-height:1.55; color:var(--ink); }
+  .md-list li{ margin-bottom:6px; }
+  .md-older{ border-top:1px solid var(--rule); padding-top:var(--sp-3); margin-bottom:var(--sp-4); }
+  .md-older summary{ cursor:pointer; font-size:12.5px; color:var(--ink-soft); font-family:var(--font-mono); letter-spacing:.4px; }
+  .md-older h4{ font-family:var(--font-serif); font-size:14.5px; margin:var(--sp-3) 0 4px; }
+  .md-older .md-date{ font-family:var(--font-mono); font-size:10.5px; color:var(--ink-faint); font-weight:400; margin-left:6px; }
+  .md-actions{ display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+  .md-src{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding:10px 12px; margin-bottom:var(--sp-3); font-size:12.5px; color:var(--ink-soft); line-height:1.5; }
+  .md-src.warn{ border-color:var(--oxblood); background:var(--oxblood-wash); color:var(--oxblood-dark); }
+  .md-check{ display:flex; gap:8px; align-items:flex-start; font-size:13.5px; margin:8px 0; cursor:pointer; }
+  .md-check input{ margin-top:3px; }
+  .md-check small{ display:block; color:var(--ink-faint); font-size:12px; }
+  .md-chips{ display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 var(--sp-3); }
 </style>
 </head>
 <body>
@@ -1428,10 +1449,15 @@ async function callGeminiChat(messages){
 }
 
 async function fileToInlinePart(file){
+  let storagePath = null;
   if(S.supabaseClient){
     try {
-      const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
-      await S.supabaseClient.storage.from('study-files').upload(fileName, file);
+      let folder = '';
+      try{ const sess = await S.supabaseClient.auth.getSession(); folder = (sess && sess.data && sess.data.session) ? sess.data.session.user.id + '/' : ''; }catch(e){}
+      const fileName = folder + `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+      const up = await S.supabaseClient.storage.from('study-files').upload(fileName, file);
+      if(up && up.error){ console.error('Supabase storage upload error', up.error); }
+      else storagePath = fileName;
     } catch(err){
       console.error('Supabase storage upload error', err);
     }
@@ -1441,7 +1467,7 @@ async function fileToInlinePart(file){
     const reader = new FileReader();
     reader.onload = ()=>{
       const base64 = reader.result.split(',')[1];
-      resolve({ inline_data: { mime_type: file.type || 'application/octet-stream', data: base64 } });
+      resolve({ inline_data: { mime_type: file.type || 'application/octet-stream', data: base64 }, storagePath });
     };
     reader.onerror = ()=> reject(new Error('Could not read file: ' + file.name));
     reader.readAsDataURL(file);
@@ -1455,7 +1481,7 @@ async function handleUploadedFile(f){
   // Keep PPTX files as real attachments like images/PDFs so the model can inspect
   // the original file instead of receiving a flattened text-only version.
   const part = await fileToInlinePart(f);
-  S.newSet.files.push({ name: f.name, inline_data: part.inline_data });
+  S.newSet.files.push({ name: f.name, inline_data: part.inline_data, path: part.storagePath || null, mime: f.type || part.inline_data.mime_type });
 }
 
 const TYPE_LABELS = {
@@ -1495,8 +1521,21 @@ const PASTED_NOTES_LABEL = 'Pasted notes';
 // Summaries for sets with several teachings are stored in the same notes_summary text column using
 // marker lines, so no database change is needed:  @@TEACHING|Title|file1;file2@@  then the summary text.
 function markerSafe(x){ return String(x == null ? '' : x).replace(/[|@;\n\r]/g, ' ').trim(); }
+// Original-source references (storage paths + pasted notes) ride along at the end of notes_summary so a set can be regenerated later.
+const SRC_RE = /\n?@@SOURCES\|([^@]*)@@\s*$/;
+function getSourcesMeta(text){
+  const m = String(text || '').match(SRC_RE);
+  if(!m) return null;
+  try{ return JSON.parse(decodeURIComponent(m[1])); }catch(e){ return null; }
+}
+function stripSourcesMeta(text){ return String(text || '').replace(SRC_RE, ''); }
+function withSourcesMeta(text, meta){
+  const body = stripSourcesMeta(text);
+  if(!meta || (!(meta.files && meta.files.length) && !(meta.notes && meta.notes.trim()))) return body;
+  return body + '\n@@SOURCES|' + encodeURIComponent(JSON.stringify(meta)) + '@@';
+}
 function parseSections(text){
-  const t = String(text || '');
+  const t = stripSourcesMeta(text);
   if(t.indexOf('@@TEACHING|') === -1) return null;
   const re = /@@TEACHING\|([^|\n]*)\|([^\n]*?)@@\n?/g;
   const heads = []; let m;
@@ -1513,7 +1552,7 @@ function parseSections(text){
 function getSections(set){
   const secs = parseSections(set && set.notesSummary);
   if(secs) return secs;
-  return [{ title: 'All notes', files: [], summary: String((set && set.notesSummary) || '') }];
+  return [{ title: 'All notes', files: [], summary: stripSourcesMeta((set && set.notesSummary) || '') }];
 }
 function buildSummaryFromSections(secs){
   const list = (secs || []).filter(x => x && (x.summary || '').trim());
@@ -1524,7 +1563,7 @@ function buildSummaryFromSections(secs){
 // Plain text of everything (for quizzes, tests, tutor, export) with no markers
 function plainNotes(text){
   const secs = parseSections(text);
-  if(!secs) return String(text || '');
+  if(!secs) return stripSourcesMeta(text);
   return secs.map(x => x.title + '\n' + x.summary).join('\n\n');
 }
 function normalizeGeneratedSections(result, files, hasNotes){
@@ -1616,7 +1655,7 @@ function renderTeachingEditor(set){
       '<button type="button" class="btn btn-quiet btn-sm" id="tch-add">+ Add teaching</button>' +
       '<button type="button" class="btn btn-quiet btn-sm" id="tch-cancel">Cancel</button>' +
       '<button type="button" class="btn btn-quiet btn-sm" id="tch-save">Save</button>' +
-      (hasSession ? '<button type="button" class="btn btn-sm" id="tch-save-rewrite">Save &amp; rewrite changed summaries</button>' : '') +
+      (hasSession ? '<button type="button" class="btn btn-primary btn-sm" id="tch-save-rewrite">Save &amp; rewrite changed summaries</button>' : '') +
     '</div>'
   );
 }
@@ -1670,13 +1709,224 @@ async function saveTeachingEdits(set, rewrite){
   }
   draft = draft.filter(x => (x.summary || '').trim());
   if(!draft.length){ alert('At least one teaching needs a summary.'); S.loading = false; render(); return; }
-  set.notesSummary = buildSummaryFromSections(draft);
+  set.notesSummary = withSourcesMeta(buildSummaryFromSections(draft), getSourcesMeta(set.notesSummary));
   await saveStudySet(set);
   S.editTeachings = null;
   S.summaryIdx = S.summaryIdx || {};
   S.summaryIdx[set.id] = 0;
   render();
   if(skipped) alert(skipped + ' teaching(s) had no files available to rewrite from, so their text was kept as-is.');
+}
+
+// ---------- Modal layer helpers ----------
+let modalLayer = null;
+function openModalLayer(innerHtml, onBackdropClose){
+  closeModalLayer(true);
+  modalLayer = document.createElement('div');
+  modalLayer.className = 'md-layer';
+  modalLayer.innerHTML = '<div class="md-card" role="dialog" aria-modal="true">' + innerHtml + '</div>';
+  document.body.appendChild(modalLayer);
+  void modalLayer.offsetWidth;
+  modalLayer.classList.add('show');
+  modalLayer.addEventListener('mousedown', (e) => { if(e.target === modalLayer && onBackdropClose) onBackdropClose(); });
+  return modalLayer;
+}
+function closeModalLayer(immediate){
+  if(!modalLayer) return;
+  const el = modalLayer; modalLayer = null;
+  el.classList.remove('show');
+  if(immediate){ if(el.parentNode) el.parentNode.removeChild(el); }
+  else setTimeout(() => { if(el.parentNode) el.parentNode.removeChild(el); }, 420);
+}
+document.addEventListener('keydown', (e) => { if(e.key === 'Escape' && modalLayer) closeModalLayer(); });
+
+// ---------- What's new popup ----------
+// HOW TO ADD AN UPDATE: put a NEW entry at the TOP of APP_UPDATES with a NEW unique id.
+// Visitors who dismissed the previous popup will see the popup again because the top id changed.
+const APP_UPDATES = [
+  { id: '2026-10-18-regenerate', date: 'Oct 18, 2026', title: 'Regenerate a study set',
+    items: [
+      'New <b>Regenerate</b> button on a set\u2019s Notes tab: it re-reads the files you originally uploaded and rebuilds the set. You choose what to redo: notes summary, sticky notes and/or starter quiz questions.',
+      'Original files are now saved with each new set so regenerating works any time. Sets made before this update will ask you to re-attach their files once.',
+      'This update popup. Close it for good until the next update.'
+    ] },
+  { id: '2026-10-18-intro', date: 'Oct 18, 2026', title: 'Intro animation, smoother loading and the app icon',
+    items: [ 'The browser tab icon now shows up.', 'A 3-second intro animation when you open the site.', 'Loading screens fade in and out smoothly with an animated logo and rotating messages.' ] },
+  { id: '2026-10-teachings', date: 'Oct 2026', title: 'Separate summaries for each teaching',
+    items: [ 'Notes from different lessons are no longer squeezed into one summary. Flip through each teaching with the arrows (or your left/right keys).', 'Wrong split? Use <b>Edit teachings</b> to move images between teachings and rewrite the summaries.' ] },
+  { id: '2026-10-paste', date: 'Oct 2026', title: 'Paste screenshots',
+    items: [ 'Take a snip and press Ctrl+V on the New Study Set screen. No need to save images to your PC first.' ] },
+  { id: '2026-10-numerical', date: 'Oct 2026', title: 'Numerical questions',
+    items: [ '\u201cNumerical (calculation)\u201d is now its own question type for quizzes and custom tests, graded by number with rounding tolerance.' ] },
+  { id: '2026-10-fixes', date: 'Oct 2026', title: 'Fixes',
+    items: [ 'Fixed \u201cCould not generate quiz \u2013 bad escaped character in JSON\u201d errors caused by formulas.', 'Fixed the per-question Regenerate button.' ] }
+];
+const UPDATE_SEEN_KEY = 'marginalia_seen_update';
+function getSeenUpdate(){ try{ return localStorage.getItem(UPDATE_SEEN_KEY); }catch(e){ return null; } }
+function markUpdateSeen(){ try{ localStorage.setItem(UPDATE_SEEN_KEY, APP_UPDATES[0].id); }catch(e){} }
+function showUpdatePopup(){
+  const latest = APP_UPDATES[0];
+  const older = APP_UPDATES.slice(1);
+  const html =
+    '<div class="md-kicker">What\u2019s new</div>' +
+    '<h3>' + latest.title + '</h3>' +
+    '<p class="md-sub">' + esc(latest.date) + '</p>' +
+    '<ul class="md-list">' + latest.items.map(x => '<li>' + x + '</li>').join('') + '</ul>' +
+    (older.length ? '<details class="md-older"><summary>Earlier updates (' + older.length + ')</summary>' +
+      older.map(u => '<h4>' + u.title + '<span class="md-date">' + esc(u.date) + '</span></h4><ul class="md-list">' + u.items.map(x => '<li>' + x + '</li>').join('') + '</ul>').join('') +
+    '</details>' : '') +
+    '<div class="md-actions">' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="upd-close">Close</button>' +
+      '<button type="button" class="btn btn-primary btn-sm" id="upd-dismiss">Close &amp; don\u2019t show again until next update</button>' +
+    '</div>';
+  const layer = openModalLayer(html, () => closeModalLayer());
+  layer.querySelector('#upd-close').onclick = () => closeModalLayer();
+  layer.querySelector('#upd-dismiss').onclick = () => { markUpdateSeen(); closeModalLayer(); };
+}
+function scheduleUpdatePopup(){
+  if(getSeenUpdate() === APP_UPDATES[0].id) return;
+  let tries = 0;
+  const iv = setInterval(() => {
+    tries++;
+    const splashGone = !document.getElementById('splash');
+    if(splashGone || tries > 75){
+      clearInterval(iv);
+      setTimeout(() => { if(getSeenUpdate() !== APP_UPDATES[0].id && !modalLayer) showUpdatePopup(); }, 450);
+    }
+  }, 200);
+}
+
+// ---------- Regenerate a set from its original files ----------
+async function fetchStoredSource(f){
+  let blob = null;
+  try{
+    const r = await S.supabaseClient.storage.from('study-files').download(f.path);
+    if(r && !r.error && r.data) blob = r.data;
+  }catch(e){}
+  if(!blob){
+    try{
+      const u = S.supabaseClient.storage.from('study-files').getPublicUrl(f.path).data.publicUrl;
+      const res = await fetch(u);
+      if(res.ok) blob = await res.blob();
+    }catch(e){}
+  }
+  if(!blob) throw new Error('Could not download ' + f.name);
+  const b64 = await new Promise((resolve, reject) => { const rd = new FileReader(); rd.onload = () => resolve(String(rd.result).split(',')[1]); rd.onerror = reject; rd.readAsDataURL(blob); });
+  const mime = f.mime || blob.type || 'application/octet-stream';
+  return { name: f.name, path: f.path, mime, inline_data: { mime_type: mime, data: b64 } };
+}
+
+function openRegenerateDialog(set){
+  const meta = getSourcesMeta(set.notesSummary) || {};
+  const sess = S.sessionSources && S.sessionSources[set.id];
+  const storedNames = sess && sess.files && sess.files.length ? sess.files.map(f => f.name) : (meta.files || []).map(f => f.name);
+  const hasNotes = !!((sess && sess.notesText && sess.notesText.trim()) || (meta.notes && meta.notes.trim()));
+  const haveOriginals = storedNames.length > 0 || hasNotes;
+  const extra = [];
+  const html =
+    '<div class="md-kicker">Regenerate</div>' +
+    '<h3>Rebuild \u201c' + esc(set.title) + '\u201d</h3>' +
+    '<p class="md-sub">Marginalia reads the originally uploaded material again and generates it fresh. Your quiz and test history is kept.</p>' +
+    (haveOriginals
+      ? '<div class="md-src"><b>Original material found:</b><div class="md-chips">' +
+          storedNames.map(n => '<span class="tch-chip">' + esc(n) + '</span>').join('') +
+          (hasNotes ? '<span class="tch-chip">' + esc(PASTED_NOTES_LABEL) + '</span>' : '') +
+        '</div></div>'
+      : '<div class="md-src warn">No original files were saved for this set (it was created before this feature). Attach the files again below to regenerate it.</div>') +
+    '<div class="field" style="margin-bottom:var(--sp-3);"><label class="field-label">' + (haveOriginals ? 'Add more files (optional)' : 'Attach files') + '</label>' +
+      '<input type="file" id="rg-files" multiple accept="image/*,.pdf,.ppt,.pptx" />' +
+      '<div class="md-chips" id="rg-extra"></div></div>' +
+    '<label class="md-check"><input type="checkbox" id="rg-notes" checked /><span>Notes summary &amp; teachings</span></label>' +
+    '<label class="md-check"><input type="checkbox" id="rg-sticky" checked /><span>Sticky notes<small>Review progress is kept for notes with the same title.</small></span></label>' +
+    '<label class="md-check"><input type="checkbox" id="rg-quiz" checked /><span>Starter quiz questions</span></label>' +
+    '<div class="md-actions" style="margin-top:var(--sp-4);">' +
+      '<button type="button" class="btn btn-quiet btn-sm" id="rg-cancel">Cancel</button>' +
+      '<button type="button" class="btn btn-primary btn-sm" id="rg-go">Regenerate</button>' +
+    '</div>';
+  const layer = openModalLayer(html, () => closeModalLayer());
+  layer.querySelector('#rg-cancel').onclick = () => closeModalLayer();
+  layer.querySelector('#rg-files').onchange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    const chips = layer.querySelector('#rg-extra');
+    for(const f of files){
+      try{
+        const part = await fileToInlinePart(f);
+        extra.push({ name: f.name, path: part.storagePath || null, mime: f.type || part.inline_data.mime_type, inline_data: part.inline_data });
+        chips.insertAdjacentHTML('beforeend', '<span class="tch-chip">' + esc(f.name) + '</span>');
+      }catch(err){ alert('Could not read ' + f.name + ': ' + err.message); }
+    }
+    e.target.value = '';
+  };
+  layer.querySelector('#rg-go').onclick = () => {
+    const opts = { notes: layer.querySelector('#rg-notes').checked, sticky: layer.querySelector('#rg-sticky').checked, quiz: layer.querySelector('#rg-quiz').checked };
+    if(!opts.notes && !opts.sticky && !opts.quiz){ alert('Pick at least one thing to regenerate.'); return; }
+    closeModalLayer();
+    runRegenerate(set, opts, extra);
+  };
+}
+
+async function runRegenerate(set, opts, extraFiles){
+  const meta = getSourcesMeta(set.notesSummary) || {};
+  const sess = S.sessionSources && S.sessionSources[set.id];
+  S.loading = true; S.loadingMsg = 'Reading materials & generating study set...'; render();
+  try{
+    let files = [];
+    let missing = [];
+    if(sess && sess.files && sess.files.length){
+      files = sess.files.map(f => ({ name: f.name, path: f.path || null, mime: f.mime || (f.inline_data && f.inline_data.mime_type), inline_data: f.inline_data }));
+    } else if(meta.files && meta.files.length){
+      for(const f of meta.files){
+        try{ files.push(await fetchStoredSource(f)); }catch(e){ missing.push(f.name); }
+      }
+    }
+    (extraFiles || []).forEach(f => files.push(f));
+    const notesText = ((sess && sess.notesText) || meta.notes || '').trim();
+    if(!files.length && !notesText){
+      if(missing.length) throw new Error('The saved original files could not be downloaded (' + missing.join(', ') + '). In Supabase, allow signed-in users to read the study-files storage bucket, or attach the files again in the Regenerate dialog.');
+      throw new Error('There is nothing to regenerate from. Attach the original files in the Regenerate dialog.');
+    }
+    const result = await generateStudyMaterials({
+      title: set.title, notesText,
+      files: files.map(f => ({ name: f.name, inline_data: f.inline_data })),
+      level: S.profile.level, count: 10, types: ['multiple_choice','true_false','short_answer','fill_blank']
+    });
+    const newMeta = { files: files.filter(f => f.path).map(f => ({ path: f.path, name: f.name, mime: f.mime })), notes: notesText };
+    if(opts.notes){
+      set.notesSummary = withSourcesMeta(buildSummaryFromSections(normalizeGeneratedSections(result, files, !!notesText)), newMeta);
+    } else {
+      set.notesSummary = withSourcesMeta(stripSourcesMeta(set.notesSummary), newMeta);
+    }
+    if(opts.sticky){
+      const old = {};
+      (set.stickyNotes || []).forEach(n => { old[String(n.title || '').trim().toLowerCase()] = n; });
+      set.stickyNotes = (result.stickyNotes || []).map(sn => {
+        const prev = old[String(sn.title || '').trim().toLowerCase()];
+        return { title: sn.title, body: sn.body, boxLevel: prev ? prev.boxLevel : 0, nextReview: prev ? prev.nextReview : Date.now() };
+      });
+    }
+    if(opts.quiz && Array.isArray(result.quiz) && result.quiz.length) set.quiz = result.quiz;
+    if((!set.category || set.category === 'General') && result.category) set.category = result.category;
+    await saveStudySet(set);
+    S.sessionSources = S.sessionSources || {};
+    S.sessionSources[set.id] = { files: files.map(f => ({ name: f.name, inline_data: f.inline_data, path: f.path || null, mime: f.mime })), notesText };
+    S.summaryIdx = S.summaryIdx || {}; S.summaryIdx[set.id] = 0;
+    S.editTeachings = null;
+    S.loading = false; render();
+    if(missing.length) alert('Regenerated, but these saved files could not be downloaded and were skipped: ' + missing.join(', '));
+  }catch(e){
+    S.loading = false; render();
+    alert('Regenerate failed: ' + e.message);
+  }
+}
+
+function bindExtras(){
+  const rg = document.getElementById('regen-set');
+  if(rg) rg.onclick = () => {
+    const set = S.studySets.find(x => x.id === S.currentSetId);
+    if(set) openRegenerateDialog(set);
+  };
+  const wn = document.getElementById('whats-new');
+  if(wn) wn.onclick = (e) => { e.preventDefault(); showUpdatePopup(); };
 }
 
 function bindTeachingHandlers(){
@@ -2423,7 +2673,7 @@ function syncLoadingOverlay(){
 }
 
 function renderFooter(){
-  return '<div class="footer-note">Marginalia securely syncs your notes, quizzes, and user data across devices using Supabase.</div>';
+  return '<div class="footer-note">Marginalia securely syncs your notes, quizzes, and user data across devices using Supabase. &nbsp;&bull;&nbsp; <a href="#" id="whats-new" style="color:inherit;">What\'s new</a></div>';
 }
 
 function esc(s){
@@ -3537,7 +3787,7 @@ async function publishSetToExplore(set, isCopyable, description, isAnonymous){
     title: set.title,
     category: set.category || 'General',
     description: (description || '').slice(0, 300),
-    notes_summary: set.notesSummary || '',
+    notes_summary: stripSourcesMeta(set.notesSummary || ''),
     sticky_notes: (set.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body })),
     quiz: (set.quiz || []).map(q => ({ type: q.type, topic: q.topic, question: q.question, options: q.options || [], answer: q.answer, explanation: q.explanation || '' })),
     is_copyable: isCopyable,
@@ -3818,6 +4068,7 @@ function renderTabNotes(set){
   return (
     '<div>' +
       '<div style="display:flex; justify-content:flex-end; gap:var(--sp-3); margin-bottom:var(--sp-4);">' +
+        '<button class="btn btn-quiet btn-sm" id="regen-set" title="Re-read the original uploads and generate this set again">Regenerate</button>' +
         '<button class="btn btn-quiet btn-sm" data-export-pdf="' + set.id + '">Export / Print PDF</button>' +
         '<button class="btn btn-quiet btn-sm" id="toggle-publish-panel">Publish to Explore</button>' +
       '</div>' +
@@ -5354,7 +5605,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
           title,
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          notesSummary: buildSummaryFromSections(generatedSections),
+          notesSummary: withSourcesMeta(buildSummaryFromSections(generatedSections), { files: (S.newSet.files || []).filter(f => f.path).map(f => ({ path: f.path, name: f.name, mime: f.mime })), notes: notesText }),
           category: result.category || 'General',
           stickyNotes: (result.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
           quiz: result.quiz,
@@ -5447,6 +5698,7 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
   }
 
   bindTeachingHandlers();
+  bindExtras();
   const toggleActiveRecall = document.getElementById('toggle-active-recall');
   if(toggleActiveRecall){
     toggleActiveRecall.onclick = () => {
@@ -6282,6 +6534,7 @@ document.addEventListener('keydown', (e) => {
   render();
 });
 
+scheduleUpdatePopup();
 loadAll();
 
 })();
