@@ -388,6 +388,10 @@
     .landing-cta-row{ flex-direction: column; }
     .landing-cta-row .btn{ width: 100%; }
     .feature-grid{ grid-template-columns: 1fr; }
+    * { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
+html { scrollbar-width: none; }               /* Firefox */
+html::-webkit-scrollbar { display: none; }    /* Chrome, Edge, Safari */
 
     .notes-grid{ grid-template-columns: 1fr; }
 
