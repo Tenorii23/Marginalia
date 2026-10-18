@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Marginalia Study App</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg width=%2264%22 height=%2264%22 viewBox=%220 0 64 64%22 fill=%22none%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2216%22 fill=%22%23111111%22/%3E%3Cpath d=%22M18 14H40L48 22V50C48 51.1 47.1 52 46 52H18C16.9 52 16 51.1 16 50V16C16 14.9 16.9 14 18 14Z%22 fill=%22%23242424%22 /%3E%3Cpath d=%22M40 14V22H48%22 fill=%22%23333333%22 /%3E%3Cpath d=%22M21 43V25L32 38L43 25V43%22 stroke=%22%23FF6347%22 stroke-width=%226%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 /%3E%3Cpath d=%22M22 20H35%22 stroke=%22%23FF6347%22 stroke-width=%222%22 stroke-linecap=%22round%22 opacity=%220.5%22 /%3E%3C/svg%3E" />
+<link rel="alternate icon" href="./favicon.svg" />
+<meta name="theme-color" content="#111111" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -620,9 +623,100 @@
   .tch-thumb.doc{ display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); }
   .tch-fname{ flex:1; font-size:12.5px; color:var(--ink-soft); word-break:break-all; }
   .tch-note{ font-size:12.5px; color:var(--ink-faint); margin-bottom:var(--sp-3); line-height:1.5; }
+  /* ---------- Intro splash (3s) ---------- */
+  #splash{ position:fixed; inset:0; z-index:9999; background:var(--paper); color:var(--ink); display:flex; align-items:center; justify-content:center; overflow:hidden;
+    transition: transform .75s cubic-bezier(.76,0,.24,1), opacity .5s ease .25s; will-change:transform; }
+  #splash.out{ transform:translateY(-100%); opacity:0; pointer-events:none; }
+  .sp-rules i{ position:absolute; left:0; right:0; height:1px; background:var(--rule); opacity:.7; transform:scaleX(0); transform-origin:left; animation:spRule 1.1s cubic-bezier(.6,0,.2,1) forwards; animation-delay:calc(.07s * var(--i)); }
+  @keyframes spRule{ to{ transform:scaleX(1); } }
+  .sp-margin{ position:absolute; top:0; bottom:0; left:12%; width:1px; background:var(--oxblood); opacity:.4; transform:scaleY(0); transform-origin:top; animation:spMargin 1.3s cubic-bezier(.6,0,.2,1) .25s forwards; }
+  @keyframes spMargin{ to{ transform:scaleY(1); } }
+  .sp-stage{ position:relative; display:flex; flex-direction:column; align-items:center; text-align:center; padding:0 20px; }
+  .sp-logowrap{ position:relative; display:grid; place-items:center; width:104px; height:104px; }
+  .sp-glow{ position:absolute; width:560px; height:560px; max-width:140vw; border-radius:50%; background:radial-gradient(circle, rgba(255,99,71,.18), transparent 65%); opacity:0; animation:spFade 1.4s ease .3s forwards; pointer-events:none; }
+  .sp-ring{ position:absolute; width:96px; height:96px; border-radius:50%; border:1.5px solid #FF6347; opacity:0; animation:spRing 1.5s ease-out forwards; }
+  .sp-ring.r2{ animation-delay:1.85s; } .sp-ring.r1{ animation-delay:1.5s; }
+  @keyframes spRing{ 0%{ opacity:.55; transform:scale(1);} 100%{ opacity:0; transform:scale(3);} }
+  .sp-logo{ position:relative; width:96px; height:96px; opacity:0; transform:scale(.55) rotate(-10deg); animation:spPop .85s cubic-bezier(.2,1.35,.4,1) .15s forwards, spGlow 1.4s ease-in-out 1.6s 1; filter:drop-shadow(0 12px 28px rgba(0,0,0,.28)); }
+  @keyframes spPop{ to{ opacity:1; transform:none; } }
+  @keyframes spGlow{ 0%,100%{ filter:drop-shadow(0 12px 28px rgba(0,0,0,.28)); } 50%{ filter:drop-shadow(0 0 26px rgba(255,99,71,.65)); } }
+  .sp-page{ opacity:0; animation:spFade .5s ease .5s forwards; }
+  .sp-m{ stroke-dasharray:100; stroke-dashoffset:100; animation:spDraw .95s cubic-bezier(.6,0,.2,1) .75s forwards; }
+  .sp-mark{ stroke-dasharray:100; stroke-dashoffset:100; animation:spDraw .5s ease 1.6s forwards; }
+  @keyframes spDraw{ to{ stroke-dashoffset:0; } }
+  @keyframes spFade{ to{ opacity:1; } }
+  .sp-word{ display:flex; font-family:var(--font-serif); font-size:clamp(34px, 9vw, 46px); font-weight:600; letter-spacing:.5px; margin-top:22px; }
+  .sp-word span{ display:inline-block; opacity:0; transform:translateY(16px); filter:blur(6px); animation:spLetter .65s cubic-bezier(.2,.8,.2,1) forwards; animation-delay:calc(1.0s + var(--i) * .055s); }
+  @keyframes spLetter{ to{ opacity:1; transform:none; filter:blur(0); } }
+  .sp-tag{ font-family:var(--font-mono); font-size:11.5px; letter-spacing:2.2px; text-transform:uppercase; color:var(--ink-faint); margin-top:12px; opacity:0; animation:spFade .7s ease 1.9s forwards; }
+  .sp-bar{ width:220px; height:2px; background:var(--rule); margin-top:30px; overflow:hidden; opacity:0; animation:spFade .4s ease .3s forwards; }
+  .sp-bar i{ display:block; height:100%; background:var(--oxblood); transform-origin:left; transform:scaleX(0); animation:spFill 2.3s cubic-bezier(.4,0,.2,1) .3s forwards; }
+  @keyframes spFill{ to{ transform:scaleX(1); } }
+
+  /* ---------- Loading layer (persistent, fades in/out) ---------- */
+  .ld-layer{ position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center; background:rgba(10,10,10,0); opacity:0; backdrop-filter:blur(0px); -webkit-backdrop-filter:blur(0px);
+    transition: background .45s ease, opacity .45s ease, backdrop-filter .45s ease, -webkit-backdrop-filter .45s ease; }
+  .ld-layer.show{ background:rgba(10,10,10,.78); opacity:1; backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px); }
+  .ld-card{ display:flex; flex-direction:column; align-items:center; gap:18px; padding:0 20px; text-align:center; opacity:0; transform:translateY(14px) scale(.95); transition: opacity .45s ease .05s, transform .6s cubic-bezier(.2,.9,.2,1) .05s; }
+  .ld-layer.show .ld-card{ opacity:1; transform:none; }
+  .ld-logowrap{ position:relative; width:92px; height:92px; display:grid; place-items:center; }
+  .ld-ring{ position:absolute; inset:0; border-radius:50%; border:1.5px solid rgba(255,99,71,.55); animation:ldRing 2.4s ease-out infinite; }
+  .ld-ring.b{ animation-delay:1.2s; }
+  @keyframes ldRing{ 0%{ opacity:.7; transform:scale(.8);} 100%{ opacity:0; transform:scale(1.9);} }
+  .ld-logo{ width:68px; height:68px; animation:ldFloat 3s ease-in-out infinite; filter:drop-shadow(0 10px 22px rgba(255,99,71,.28)); }
+  @keyframes ldFloat{ 0%,100%{ transform:translateY(0) rotate(-1.5deg);} 50%{ transform:translateY(-6px) rotate(1.5deg);} }
+  .ld-m{ stroke-dasharray:100; stroke-dashoffset:100; animation:ldDraw 2s cubic-bezier(.6,0,.2,1) infinite; }
+  @keyframes ldDraw{ 0%{ stroke-dashoffset:100; } 50%,78%{ stroke-dashoffset:0; } 100%{ stroke-dashoffset:-100; } }
+  .ld-bar{ width:190px; height:3px; background:rgba(255,255,255,.14); border-radius:2px; overflow:hidden; }
+  .ld-bar i{ display:block; height:100%; width:38%; border-radius:2px; background:linear-gradient(90deg, transparent, #FF6347, transparent); animation:ldSlide 1.35s ease-in-out infinite; }
+  @keyframes ldSlide{ from{ transform:translateX(-130%);} to{ transform:translateX(330%);} }
+  .ld-text{ font-family:var(--font-serif); font-size:15.5px; color:#fff; min-height:1.5em; transition: opacity .25s ease, transform .25s ease; }
+  .ld-text.swap{ opacity:0; transform:translateY(5px); }
+  .ld-sub{ font-family:var(--font-sans); font-size:12.5px; color:rgba(255,255,255,.6); max-width:300px; line-height:1.5; opacity:0; transform:translateY(4px); transition:opacity .6s ease, transform .6s ease; min-height:1.5em; }
+  .ld-sub.on{ opacity:1; transform:none; }
+
+  /* Smooth page changes */
+  #root.rt{ animation: rtFade .45s ease both; }
+  @keyframes rtFade{ from{ opacity:0; } to{ opacity:1; } }
+
+  @media (prefers-reduced-motion: reduce){
+    #splash, #splash *{ animation-duration:.01s !important; animation-delay:0s !important; transition-duration:.2s !important; }
+    .ld-logo, .ld-m, .ld-ring, .ld-bar i, #root.rt{ animation:none !important; }
+    .ld-m{ stroke-dashoffset:0; }
+  }
 </style>
 </head>
 <body>
+<div id="splash" aria-hidden="true">
+  <div class="sp-rules"><i style="top:8%; --i:0"></i><i style="top:19%; --i:1"></i><i style="top:30%; --i:2"></i><i style="top:41%; --i:3"></i><i style="top:52%; --i:4"></i><i style="top:63%; --i:5"></i><i style="top:74%; --i:6"></i><i style="top:85%; --i:7"></i></div><div class="sp-margin"></div>
+  <div class="sp-stage">
+    <div class="sp-logowrap">
+      <div class="sp-glow"></div><div class="sp-ring r1"></div><div class="sp-ring r2"></div>
+      <svg class="sp-logo" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="64" height="64" rx="16" fill="#111111"/>
+        <path class="sp-page" d="M18 14H40L48 22V50C48 51.1 47.1 52 46 52H18C16.9 52 16 51.1 16 50V16C16 14.9 16.9 14 18 14Z" fill="#242424"/>
+        <path class="sp-page" d="M40 14V22H48" fill="#333333"/>
+        <path class="sp-m" pathLength="100" d="M21 43V25L32 38L43 25V43" stroke="#FF6347" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path class="sp-mark" pathLength="100" d="M22 20H35" stroke="#FF6347" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+      </svg>
+    </div>
+    <div class="sp-word"><span style="--i:0">M</span><span style="--i:1">a</span><span style="--i:2">r</span><span style="--i:3">g</span><span style="--i:4">i</span><span style="--i:5">n</span><span style="--i:6">a</span><span style="--i:7">l</span><span style="--i:8">i</span><span style="--i:9">a</span></div>
+    <div class="sp-tag">study notes &middot; quizzes &middot; tests</div>
+    <div class="sp-bar"><i></i></div>
+  </div>
+</div>
+<script>
+(function(){
+  var el = document.getElementById("splash"); if(!el) return;
+  var start = Date.now(), done = false, ready = false;
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var MIN = reduce ? 500 : 2500;               // slide-up exit starts here, finishes ~3s
+  function exit(){ if(done) return; done = true; el.classList.add("out"); setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 900); }
+  function tryExit(){ if(!ready) return; setTimeout(exit, Math.max(0, MIN - (Date.now() - start))); }
+  window.__splashReady = function(){ if(ready) return; ready = true; tryExit(); };
+  setTimeout(function(){ ready = true; tryExit(); }, 7000);   // failsafe if the app never signals
+})();
+</script>
 <div id="root"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -1993,19 +2087,24 @@ async function gradeTest(items, { level, leniency, spellingLenient, persona } = 
 const root = document.getElementById('root');
 
 function render(){
-  if(S.route === 'loading'){ root.innerHTML = ''; return; }
+  if(S.route === 'loading'){ root.innerHTML = ''; syncLoadingOverlay(); return; }
   let html = '';
   if(S.route === 'landing') html = renderLanding();
   else if(S.route === 'onboarding') html = renderOnboarding();
   else {
     html = '<div class="app">' + renderTopbar() + renderAutoSwitchBanner() + renderRoute() + renderFooter() + '</div>';
   }
-  if(S.loading){ html += renderLoadingOverlay(); }
   if(S.modelFallbackModal){ html += renderModelFallbackModal(); }
   if(S.tutorDrawer){ html += renderTutorDrawer(); }
   if(S.tourActive){ html += renderTourOverlay(); }
+  if(S._lastRenderedRoute !== S.route){
+    S._lastRenderedRoute = S.route;
+    root.classList.remove('rt'); void root.offsetWidth; root.classList.add('rt');
+  }
   root.innerHTML = html;
   bindEvents();
+  syncLoadingOverlay();
+  if(window.__splashReady) window.__splashReady();
 
   if(S.route === 'stats'){
     initStatsCharts();
@@ -2257,14 +2356,70 @@ const LOADING_FLAVORS = {
   'Grading quiz answers...': ['Marking in red ink\u2026', 'Weighing your answers\u2026', 'Comparing notes\u2026'],
   'Generating formal test...': ['Setting the examination\u2026', 'Drafting the rubric\u2026', 'Sharpening the questions\u2026'],
   'Grading test responses...': ['Reading between the lines\u2026', 'Awarding partial credit fairly\u2026', 'Consulting the key\u2026'],
+  'Rewriting changed teachings...': ['Re-reading the moved pages\u2026', 'Rewriting each teaching\u2026', 'Tidying the margins\u2026'],
+  'Creating Supabase account...': ['Preparing your desk\u2026', 'Setting up your shelf\u2026', 'Almost ready\u2026'],
+  'Logging into Supabase...': ['Finding your notes\u2026', 'Opening your library\u2026', 'Welcome back\u2026'],
+  'Sending reset link...': ['Writing the note\u2026', 'Sending it your way\u2026'],
 };
 function getFlavorMsg(msg){
   const flavors = LOADING_FLAVORS[msg];
   if(!flavors) return msg;
   return flavors[Math.floor(Date.now() / 1800) % flavors.length];
 }
-function renderLoadingOverlay(){
-  return '<div class="loading-overlay"><div class="loading-mark"></div><div class="loading-text">' + esc(getFlavorMsg(S.loadingMsg||'Working')) + '</div></div>';
+function renderLoadingOverlay(){ return ''; }   // loading UI now lives in a persistent layer (see syncLoadingOverlay)
+
+const LOADING_LOGO_SVG = '<svg class="ld-logo" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#111111"/><path d="M18 14H40L48 22V50C48 51.1 47.1 52 46 52H18C16.9 52 16 51.1 16 50V16C16 14.9 16.9 14 18 14Z" fill="#242424"/><path d="M40 14V22H48" fill="#333333"/><path class="ld-m" pathLength="100" d="M21 43V25L32 38L43 25V43" stroke="#FF6347" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 20H35" stroke="#FF6347" stroke-width="2" stroke-linecap="round" opacity="0.5"/></svg>';
+let loadingLayer = null, loadingTimer = null, loadingShownAt = 0, loadingBase = '', loadingFlavorIdx = 0;
+
+function pickLoadingText(){
+  const flavors = LOADING_FLAVORS[loadingBase];
+  if(!flavors) return loadingBase || 'Working';
+  return flavors[loadingFlavorIdx % flavors.length];
+}
+function swapLoadingText(){
+  if(!loadingLayer) return;
+  const t = loadingLayer.querySelector('.ld-text'); if(!t) return;
+  const next = pickLoadingText();
+  if(t.textContent === next) return;
+  t.classList.add('swap');
+  setTimeout(() => { if(loadingLayer){ t.textContent = next; t.classList.remove('swap'); } }, 260);
+}
+function tickLoading(){
+  if(!loadingLayer) return;
+  loadingFlavorIdx++;
+  swapLoadingText();
+  const sub = loadingLayer.querySelector('.ld-sub');
+  if(sub && Date.now() - loadingShownAt > 12000 && !sub.classList.contains('on')){
+    sub.textContent = 'Still working \u2014 big files and long notes can take a little longer.';
+    sub.classList.add('on');
+  }
+}
+function syncLoadingOverlay(){
+  if(S.loading){
+    const base = S.loadingMsg || 'Working';
+    if(!loadingLayer){
+      loadingBase = base; loadingFlavorIdx = Math.floor(Math.random() * 4);
+      loadingLayer = document.createElement('div');
+      loadingLayer.className = 'ld-layer';
+      loadingLayer.setAttribute('role', 'status');
+      loadingLayer.setAttribute('aria-live', 'polite');
+      loadingLayer.innerHTML = '<div class="ld-card"><div class="ld-logowrap"><div class="ld-ring"></div><div class="ld-ring b"></div>' + LOADING_LOGO_SVG + '</div><div class="ld-bar"><i></i></div><div class="ld-text"></div><div class="ld-sub"></div></div>';
+      loadingLayer.querySelector('.ld-text').textContent = pickLoadingText();
+      document.body.appendChild(loadingLayer);
+      void loadingLayer.offsetWidth;
+      loadingLayer.classList.add('show');
+      loadingShownAt = Date.now();
+      loadingTimer = setInterval(tickLoading, 2200);
+    } else if(base !== loadingBase){
+      loadingBase = base; loadingFlavorIdx = 0; swapLoadingText();
+    }
+  } else if(loadingLayer){
+    const el = loadingLayer;
+    loadingLayer = null;
+    clearInterval(loadingTimer);
+    el.classList.remove('show');
+    setTimeout(() => { if(el.parentNode) el.parentNode.removeChild(el); }, 520);
+  }
 }
 
 function renderFooter(){
