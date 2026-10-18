@@ -58,6 +58,8 @@
 
   *{ box-sizing: border-box; }
   html,body{ margin:0; padding:0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); }
+  html{ scrollbar-width: none; }
+  html::-webkit-scrollbar{ display: none; }
 
   h1,h2,h3,h4{ font-family: var(--font-serif); font-weight: 600; margin: 0; color: var(--ink); }
   p{ margin: 0; }
@@ -390,8 +392,6 @@
     .feature-grid{ grid-template-columns: 1fr; }
     * { scrollbar-width: none; }
 *::-webkit-scrollbar { display: none; }
-html { scrollbar-width: none; }               /* Firefox */
-html::-webkit-scrollbar { display: none; }    /* Chrome, Edge, Safari */
 
     .notes-grid{ grid-template-columns: 1fr; }
 
