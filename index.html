@@ -720,6 +720,22 @@
   .tc-step input{ width:44px; height:34px; text-align:center; border:0; border-left:1px solid var(--rule-strong); border-right:1px solid var(--rule-strong); background:transparent; color:var(--ink); font-family:var(--font-mono); font-size:14px; padding:0; -moz-appearance:textfield; }
   .tc-step input::-webkit-outer-spin-button, .tc-step input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
   .tc-total{ margin-top:10px; font-family:var(--font-mono); font-size:12px; color:var(--ink-soft); letter-spacing:.3px; }
+  /* ── Photo sorter ── */
+  .ps-group{ border:1px solid var(--rule-strong); background:var(--paper-raised); padding: var(--sp-4); margin-bottom: var(--sp-4); }
+  .ps-group.unsorted{ border-style:dashed; background:transparent; }
+  .ps-group-head{ display:flex; align-items:center; flex-wrap:wrap; gap: var(--sp-3); margin-bottom: var(--sp-3); }
+  .ps-group-head h3{ flex:1; font-size:15px; }
+  .ps-group-head input[type=text]{ flex:1; min-width:180px; font-family: var(--font-serif); font-weight:600; }
+  .ps-count{ font-family: var(--font-mono); font-size:11.5px; color: var(--ink-soft); white-space:nowrap; }
+  .ps-empty{ font-size:13px; color: var(--ink-soft); padding: var(--sp-2) 0; }
+  .ps-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: var(--sp-3); }
+  .ps-photo{ border:1px solid var(--rule-strong); background: var(--paper); display:flex; flex-direction:column; }
+  .ps-photo img{ display:block; width:100%; height:110px; object-fit:cover; border-bottom:1px solid var(--rule); cursor:zoom-in; }
+  .ps-photo-foot{ padding: 6px; display:flex; flex-direction:column; gap:6px; }
+  .ps-photo-name{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ps-photo select{ padding: 5px 6px; font-size:12px; }
+  .ps-remove{ align-self:flex-start; background:none; border:none; padding:0; font-size:11.5px; color: var(--oxblood); text-decoration:underline; }
+  .ps-viewer img{ display:block; max-width:100%; max-height:70vh; margin:0 auto var(--sp-4); border:1px solid var(--rule-strong); }
 </style>
 </head>
 <body>
@@ -822,7 +838,9 @@ const S = {
   dashboardSearch: '',
   dashboardActiveTags: [],
   dashboardGroupBy: 'none', // 'none' | 'category'
-  editingTagsSetId: null
+  editingTagsSetId: null,
+  // photo sorter: batch of photos split into study sets (kept while you move around the app)
+  photoSort: null
 };
 
 const PRESET_API_KEYS = [
@@ -1819,6 +1837,11 @@ document.addEventListener('keydown', (e) => { if(e.key === 'Escape' && modalLaye
 // HOW TO ADD AN UPDATE: put a NEW entry at the TOP of APP_UPDATES with a NEW unique id.
 // Visitors who dismissed the previous popup will see the popup again because the top id changed.
 const APP_UPDATES = [
+  { id: '2026-10-20-photosorter', date: 'Oct 20, 2026', title: 'Photo Sorter',
+    items: [
+      'New <b>Sort photos into sets</b> page on the dashboard: drop in a whole batch of photos, split them into study sets by hand (or tap <b>Suggest sets with AI</b>), then generate every set in one go.',
+      'Big photos are shrunk before they are sent, so a dozen phone pictures no longer trip the upload limit.'
+    ] },
   { id: '2026-10-18-tests', date: 'Oct 18, 2026', title: 'Smarter questions and cleaner test settings',
     items: [
       'The AI now writes much harder, more meaningful questions. No more one-step \u201c100 minus 95\u201d style questions, and better multiple-choice options.',
@@ -2789,6 +2812,7 @@ function renderRoute(){
     case 'examBuilder': return renderExamBuilder();
     case 'dailyreview': return renderDailyReview();
     case 'explore': return renderExplore();
+    case 'photosort': return renderPhotoSort();
     default: return '';
   }
 }
@@ -2802,6 +2826,7 @@ const LOADING_FLAVORS = {
   'Creating Supabase account...': ['Preparing your desk\u2026', 'Setting up your shelf\u2026', 'Almost ready\u2026'],
   'Logging into Supabase...': ['Finding your notes\u2026', 'Opening your library\u2026', 'Welcome back\u2026'],
   'Sending reset link...': ['Writing the note\u2026', 'Sending it your way\u2026'],
+  'Sorting your photos...': ['Laying the pages out\u2026', 'Finding what belongs together\u2026', 'Sorting by subject\u2026'],
 };
 function getFlavorMsg(msg){
   const flavors = LOADING_FLAVORS[msg];
@@ -3400,12 +3425,13 @@ function renderDashboard(){
       '</div>'
     ) : '') +
     (allHistory.length ? renderStreakBar(allHistory) : '') +
-    (allSets.length ? (
-      '<div class="dash-actions">' +
+    '<div class="dash-actions">' +
+      (allSets.length ? (
         '<button class="btn btn-primary" data-nav="dailyreview">Daily Review' + (dueCards.length ? ' <span class="due-badge">' + dueCards.length + '</span>' : '') + '</button>' +
-        '<button class="btn btn-quiet" data-nav="examBuilder">Build Comprehensive Exam</button>' +
-      '</div>'
-    ) : '') +
+        '<button class="btn btn-quiet" data-nav="examBuilder">Build Comprehensive Exam</button>'
+      ) : '') +
+      '<button class="btn btn-quiet" data-nav="photosort">Sort photos into sets</button>' +
+    '</div>' +
     '<div class="section-heading">' +
       '<h2>Study Sets</h2>' +
       '<span class="muted" style="font-size:13px">' + filteredSets.length + ' of ' + allSets.length + ' set' + (allSets.length===1?'':'s') + '</span>' +
@@ -4221,6 +4247,312 @@ function renderNewSet(){
       '</div>' +
     '</div>'
   );
+}
+
+// ── Photo sorter: drop in a batch of photos, split them into study sets ──
+const PS_MAX_PHOTOS = 30;
+function newPhotoSortState(){
+  return { photos: [], groups: [{ id: uid(), title: '' }], level: (S.profile && S.profile.level) || 'college', status: '' };
+}
+function psGroupLabel(g, i){ return g.title.trim() || ('Untitled set ' + (i + 1)); }
+function psPlural(n, word){ return n + ' ' + word + (n === 1 ? '' : 's'); }
+
+// Phone photos are often 4-10 MB each; a dozen in one request can blow past the API's inline-data limit.
+async function shrinkPhoto(file){
+  try{
+    if(!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
+    const bmp = await createImageBitmap(file);
+    const MAX = 2000;
+    const scale = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+    if(scale === 1 && file.size < 1500000){ if(bmp.close) bmp.close(); return file; }
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    if(bmp.close) bmp.close();
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
+    if(!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  }catch(e){ return file; }
+}
+
+async function addPhotoSortFiles(files){
+  const ps = S.photoSort; if(!ps) return;
+  const all = Array.from(files || []);
+  const imgs = all.filter(f => f.type && f.type.indexOf('image/') === 0);
+  const room = PS_MAX_PHOTOS - ps.photos.length;
+  const take = imgs.slice(0, Math.max(0, room));
+  const notes = [];
+  if(all.length > imgs.length) notes.push((all.length - imgs.length) + ' file(s) skipped because they are not images.');
+  if(imgs.length > take.length) notes.push((imgs.length - take.length) + ' photo(s) skipped. The limit is ' + PS_MAX_PHOTOS + ' per batch.');
+  const failed = [];
+  for(let i = 0; i < take.length; i++){
+    ps.status = 'Adding photo ' + (i + 1) + ' of ' + take.length + '...';
+    render();
+    try{
+      const small = await shrinkPhoto(take[i]);
+      const part = await fileToInlinePart(small);
+      ps.photos.push({
+        id: uid(), name: small.name, mime: small.type || part.inline_data.mime_type,
+        inline_data: part.inline_data, path: part.storagePath || null,
+        url: URL.createObjectURL(small), group: null
+      });
+    }catch(err){ failed.push(take[i].name); }
+  }
+  ps.status = '';
+  render();
+  if(failed.length) notes.push('Could not read: ' + failed.join(', '));
+  if(notes.length) alert(notes.join('\n'));
+}
+
+function renderPhotoSortCard(p, ps){
+  return (
+    '<div class="ps-photo">' +
+      '<img src="' + p.url + '" alt="' + esc(p.name) + '" data-ps-view="' + p.id + '" />' +
+      '<div class="ps-photo-foot">' +
+        '<div class="ps-photo-name" title="' + esc(p.name) + '">' + esc(p.name) + '</div>' +
+        '<select data-ps-move="' + p.id + '" aria-label="Move this photo to a study set">' +
+          '<option value="">Unsorted</option>' +
+          ps.groups.map((g, i) => '<option value="' + g.id + '"' + (p.group === g.id ? ' selected' : '') + '>' + esc(psGroupLabel(g, i)) + '</option>').join('') +
+        '</select>' +
+        '<button type="button" class="ps-remove" data-ps-remove="' + p.id + '">Remove</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderPhotoSort(){
+  const ps = S.photoSort || (S.photoSort = newPhotoSortState());
+  const validIds = ps.groups.map(g => g.id);
+  const unsorted = ps.photos.filter(p => !p.group || validIds.indexOf(p.group) === -1);
+  const readyCount = ps.groups.filter(g => ps.photos.some(p => p.group === g.id)).length;
+  return (
+    '<div>' +
+      '<h2 style="margin-bottom:var(--sp-3)">Photo Sorter</h2>' +
+      '<p class="onboard-sub">Drop in a batch of photos, split them into study sets, then generate every set in one go. Photos you leave unsorted are skipped.</p>' +
+      '<div class="field">' +
+        '<label class="field-label">Photos (' + ps.photos.length + ' of ' + PS_MAX_PHOTOS + ')</label>' +
+        '<div class="dropzone" id="ps-dropzone">' + esc(ps.status || 'Drop photos here, click to browse, or paste a screenshot with Ctrl+V') + '</div>' +
+        '<input type="file" id="ps-fileinput" multiple accept="image/*" style="display:none" />' +
+      '</div>' +
+      (ps.photos.length ? (
+        '<div class="dash-actions" style="margin-bottom:var(--sp-5);">' +
+          '<button type="button" class="btn btn-quiet btn-sm" id="ps-suggest">Suggest sets with AI</button>' +
+          '<button type="button" class="btn btn-quiet btn-sm" id="ps-reset">Start over</button>' +
+        '</div>' +
+        '<div class="ps-group unsorted">' +
+          '<div class="ps-group-head"><h3>Unsorted</h3><span class="ps-count">' + psPlural(unsorted.length, 'photo') + '</span></div>' +
+          (unsorted.length ? '<div class="ps-grid">' + unsorted.map(p => renderPhotoSortCard(p, ps)).join('') + '</div>' : '<div class="ps-empty">Everything is sorted.</div>') +
+        '</div>' +
+        ps.groups.map((g, i) => {
+          const mine = ps.photos.filter(p => p.group === g.id);
+          return (
+            '<div class="ps-group">' +
+              '<div class="ps-group-head">' +
+                '<input type="text" data-ps-title="' + g.id + '" value="' + esc(g.title) + '" placeholder="Study set title, e.g. Cell Biology" aria-label="Title of study set ' + (i + 1) + '" />' +
+                '<span class="ps-count">' + psPlural(mine.length, 'photo') + '</span>' +
+                '<button type="button" class="btn btn-quiet btn-sm" data-ps-del-group="' + g.id + '">Remove set</button>' +
+              '</div>' +
+              (mine.length ? '<div class="ps-grid">' + mine.map(p => renderPhotoSortCard(p, ps)).join('') + '</div>' : '<div class="ps-empty">No photos yet. Choose this set from a photo\u2019s menu to move it here.</div>') +
+            '</div>'
+          );
+        }).join('') +
+        '<button type="button" class="btn btn-quiet btn-sm" id="ps-add-group" style="margin-bottom:var(--sp-5);">Add study set</button>' +
+        '<div class="field" style="max-width:260px;">' +
+          '<label class="field-label">Education level</label>' +
+          '<select id="ps-level">' +
+            '<option value="college"' + (ps.level === 'college' ? ' selected' : '') + '>College</option>' +
+            '<option value="highschool"' + (ps.level === 'highschool' ? ' selected' : '') + '>High school</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="field-hint">Each set gets its own summary, revision cards and starter quiz, the same as New Study Set.</div>' +
+        '<div style="display:flex; gap:var(--sp-3); margin-top:var(--sp-5);">' +
+          '<button class="btn btn-primary" id="ps-generate"' + (readyCount ? '' : ' disabled') + '>' + (readyCount ? 'Generate ' + psPlural(readyCount, 'study set') + ' with AI' : 'Sort photos into a set to generate') + '</button>' +
+          '<button class="btn btn-quiet" data-nav="dashboard">Back</button>' +
+        '</div>'
+      ) : (
+        '<div style="margin-top:var(--sp-5);"><button class="btn btn-quiet" data-nav="dashboard">Back</button></div>'
+      )) +
+    '</div>'
+  );
+}
+
+async function suggestPhotoGroups(){
+  const ps = S.photoSort; if(!ps) return;
+  if(ps.photos.length < 2){ alert('Add at least two photos first.'); return; }
+  if(ps.photos.some(p => p.group) && !confirm('This replaces the way you have sorted the photos so far. Continue?')) return;
+  S.loading = true; S.loadingMsg = 'Sorting your photos...'; render();
+  try{
+    const prompt = [
+      'You are sorting photos of study material (notes, textbook pages, slides, whiteboards) into separate study sets.',
+      'Look at every photo and put the ones that belong to the same subject or lesson together. Every photo must go in exactly one group. Use as few groups as make sense, usually 2 to 6, but never merge clearly different subjects.',
+      'Give each group a short title (2-6 words) in ' + getTargetLang() + '.',
+      'Photos are labelled [Photo 1: name], [Photo 2: name], and so on.',
+      'Respond with JSON only: { "groups": [ { "title": string, "photoNumbers": [integer] } ] }'
+    ].join('\n');
+    const parts = [{ text: prompt }];
+    ps.photos.forEach((p, i) => { parts.push({ text: '[Photo ' + (i + 1) + ': ' + p.name + ']' }); parts.push({ inline_data: p.inline_data }); });
+    const result = await callGemini(parts);
+    const seen = {}; const groups = [];
+    (Array.isArray(result.groups) ? result.groups : []).forEach(g => {
+      const nums = (Array.isArray(g.photoNumbers) ? g.photoNumbers : []).map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= ps.photos.length && !seen[n]);
+      if(!nums.length) return;
+      nums.forEach(n => { seen[n] = true; });
+      groups.push({ id: uid(), title: String(g.title || '').slice(0, 80), nums });
+    });
+    if(!groups.length) throw new Error('The AI could not find any groups. Try sorting by hand.');
+    ps.photos.forEach(p => { p.group = null; });
+    ps.groups = groups.map(g => ({ id: g.id, title: g.title }));
+    groups.forEach(g => g.nums.forEach(n => { ps.photos[n - 1].group = g.id; }));
+  }catch(e){
+    alert('Could not sort the photos: ' + e.message);
+  }finally{
+    S.loading = false;
+    render();
+  }
+}
+
+async function generatePhotoSortSets(){
+  const ps = S.photoSort; if(!ps) return;
+  const ready = ps.groups.map((g, i) => ({ g, i, photos: ps.photos.filter(p => p.group === g.id) })).filter(x => x.photos.length);
+  if(!ready.length){ alert('Move at least one photo into a study set first.'); return; }
+  const blank = ready.find(x => !x.g.title.trim());
+  if(blank){ alert('Give every study set that has photos a title. Set ' + (blank.i + 1) + ' is blank.'); return; }
+  const validIds = ps.groups.map(g => g.id);
+  const leftOut = ps.photos.filter(p => !p.group || validIds.indexOf(p.group) === -1).length;
+  if(leftOut && !confirm(psPlural(leftOut, 'photo') + ' still unsorted and will be left out. Continue?')) return;
+
+  const types = ['multiple_choice','true_false','short_answer','fill_blank'];
+  const made = []; const failed = []; const thin = [];
+  for(let k = 0; k < ready.length; k++){
+    const { g, photos } = ready[k];
+    S.loading = true;
+    S.loadingMsg = 'Building \u201c' + g.title.trim() + '\u201d' + (ready.length > 1 ? ' (' + (k + 1) + ' of ' + ready.length + ')' : '') + '...';
+    render();
+    try{
+      const files = photos.map(p => ({ name: p.name, inline_data: p.inline_data }));
+      const title = g.title.trim();
+      const result = await generateStudyMaterials({ title, notesText: '', files, level: ps.level, count: 10, types });
+      if(S._insufficientMaterialWarning) thin.push(title);
+      const sections = normalizeGeneratedSections(result, photos, false);
+      const newSet = {
+        id: uid(),
+        title,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        notesSummary: withSourcesMeta(buildSummaryFromSections(sections), { files: photos.filter(f => f.path).map(f => ({ path: f.path, name: f.name, mime: f.mime })), notes: '' }),
+        category: normalizeCategory(result.category),
+        stickyNotes: (result.stickyNotes || []).map(sn => ({ title: sn.title, body: sn.body, boxLevel: 0, nextReview: Date.now() })),
+        quiz: Array.isArray(result.quiz) ? result.quiz : [],
+        history: []
+      };
+      await saveStudySet(newSet);
+      S.sessionSources = S.sessionSources || {};
+      S.sessionSources[newSet.id] = { files: photos.map(p => ({ name: p.name, inline_data: p.inline_data, path: p.path, mime: p.mime })), notesText: '' };
+      S.summaryIdx = S.summaryIdx || {};
+      S.summaryIdx[newSet.id] = 0;
+      if(!S.statsSelectedSetIds) S.statsSelectedSetIds = [];
+      S.statsSelectedSetIds.push(newSet.id);
+      made.push(newSet);
+      // this set is done: drop its photos and its group from the sorter
+      photos.forEach(p => { try{ URL.revokeObjectURL(p.url); }catch(e){} });
+      ps.photos = ps.photos.filter(p => p.group !== g.id);
+      ps.groups = ps.groups.filter(x => x.id !== g.id);
+    }catch(e){
+      failed.push(g.title.trim() + ' (' + e.message + ')');
+    }
+  }
+  S.loading = false;
+  if(!ps.groups.length) ps.groups.push({ id: uid(), title: '' });
+  if(made.length){
+    if(made.length === 1 && !failed.length){
+      S.currentSetId = made[0].id; S.currentTab = 'notes'; S.route = 'set';
+    } else {
+      S.currentSetId = null; S.route = 'dashboard';
+    }
+    if(!ps.photos.length) S.photoSort = null;
+  }
+  render();
+  const msgs = [];
+  if(made.length > 1 || failed.length) msgs.push('Created ' + psPlural(made.length, 'study set') + '.');
+  if(failed.length) msgs.push('These failed, and their photos are still on the Photo Sorter page:\n' + failed.join('\n'));
+  if(thin.length) msgs.push('The source looked thin for: ' + thin.join(', ') + '. Consider adding more pages.');
+  if(msgs.length) setTimeout(() => alert(msgs.join('\n\n')), 50);
+}
+
+function bindPhotoSort(){
+  const ps = S.photoSort;
+  const dz = document.getElementById('ps-dropzone');
+  if(!ps || !dz) return;
+  const fi = document.getElementById('ps-fileinput');
+  dz.onclick = () => fi.click();
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('drag'); };
+  dz.ondragleave = () => dz.classList.remove('drag');
+  dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove('drag'); addPhotoSortFiles(Array.from(e.dataTransfer.files)); };
+  fi.onchange = (e) => { const files = Array.from(e.target.files); e.target.value = ''; addPhotoSortFiles(files); };
+
+  document.querySelectorAll('[data-ps-move]').forEach(el => {
+    el.onchange = () => {
+      const p = ps.photos.find(x => x.id === el.getAttribute('data-ps-move'));
+      if(p){ p.group = el.value || null; render(); }
+    };
+  });
+  document.querySelectorAll('[data-ps-remove]').forEach(el => {
+    el.onclick = () => {
+      const id = el.getAttribute('data-ps-remove');
+      const p = ps.photos.find(x => x.id === id);
+      if(p){ try{ URL.revokeObjectURL(p.url); }catch(e){} }
+      ps.photos = ps.photos.filter(x => x.id !== id);
+      render();
+    };
+  });
+  document.querySelectorAll('[data-ps-title]').forEach(el => {
+    el.oninput = () => {
+      const g = ps.groups.find(x => x.id === el.getAttribute('data-ps-title'));
+      if(g) g.title = el.value;
+    };
+  });
+  document.querySelectorAll('[data-ps-del-group]').forEach(el => {
+    el.onclick = () => {
+      const id = el.getAttribute('data-ps-del-group');
+      ps.photos.forEach(p => { if(p.group === id) p.group = null; });
+      ps.groups = ps.groups.filter(g => g.id !== id);
+      render();
+    };
+  });
+  document.querySelectorAll('[data-ps-view]').forEach(el => {
+    el.onclick = () => {
+      const p = ps.photos.find(x => x.id === el.getAttribute('data-ps-view'));
+      if(!p) return;
+      const layer = openModalLayer(
+        '<div class="ps-viewer"><img src="' + p.url + '" alt="' + esc(p.name) + '" />' +
+        '<div class="md-actions"><button type="button" class="btn btn-quiet btn-sm" id="ps-viewer-close">Close</button></div></div>',
+        () => closeModalLayer()
+      );
+      layer.querySelector('#ps-viewer-close').onclick = () => closeModalLayer();
+    };
+  });
+  const add = document.getElementById('ps-add-group');
+  if(add) add.onclick = () => {
+    ps.groups.push({ id: uid(), title: '' });
+    render();
+    const inputs = document.querySelectorAll('[data-ps-title]');
+    if(inputs.length) inputs[inputs.length - 1].focus();
+  };
+  const sug = document.getElementById('ps-suggest');
+  if(sug) sug.onclick = () => suggestPhotoGroups();
+  const reset = document.getElementById('ps-reset');
+  if(reset) reset.onclick = () => {
+    if(!confirm('Remove all photos from this page and start over?')) return;
+    ps.photos.forEach(p => { try{ URL.revokeObjectURL(p.url); }catch(e){} });
+    S.photoSort = newPhotoSortState();
+    render();
+  };
+  const lvl = document.getElementById('ps-level');
+  if(lvl) lvl.onchange = () => { ps.level = lvl.value; };
+  const gen = document.getElementById('ps-generate');
+  if(gen) gen.onclick = () => generatePhotoSortSets();
 }
 
 function renderSet(){
@@ -5143,6 +5475,7 @@ function bindEvents(){
       if(target === 'dashboard'){ S.route = 'dashboard'; S.currentSetId = null; }
       else if(target === 'settings'){ S.route = 'settings'; }
       else if(target === 'newset'){ S.route = 'newset'; S.newSet = null; }
+      else if(target === 'photosort'){ S.route = 'photosort'; if(!S.photoSort) S.photoSort = newPhotoSortState(); }
       else if(target === 'stats'){
         S.route = 'stats';
         if(!S.statsSelectedSetIds) S.statsSelectedSetIds = S.studySets.map(s=>s.id);
@@ -5723,6 +6056,8 @@ const { error: profErr } = await S.supabaseClient.from('profiles').upsert(newPro
       render();
     };
   });
+
+  bindPhotoSort();
 
   const nsGenerate = document.getElementById('ns-generate');
   if(nsGenerate){
@@ -6649,7 +6984,8 @@ async function addPastedImageFiles(images){
   render();
 }
 document.addEventListener('paste', (e) => {
-  if(!document.getElementById('ns-dropzone')) return;             // only on the New Study Set screen
+  const onSorter = !!document.getElementById('ps-dropzone');
+  if(!onSorter && !document.getElementById('ns-dropzone')) return;   // only on the New Study Set / Photo Sorter screens
   const cd = e.clipboardData;
   if(!cd) return;
   const images = [];
@@ -6664,7 +7000,10 @@ document.addEventListener('paste', (e) => {
   const typingInField = tag === 'TEXTAREA' || (tag === 'INPUT' && e.target.type !== 'file');
   if(typingInField && cd.getData('text/plain')) return;           // normal text paste into notes/title
   e.preventDefault();
-  addPastedImageFiles(images);
+  if(onSorter){
+    const stamp = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+    addPhotoSortFiles(images.map((img, i) => new File([img], 'screenshot-' + stamp + '-' + (i + 1) + '.' + ((img.type.split('/')[1] || 'png').replace('jpeg','jpg').replace(/[^a-z0-9]/gi,'')), { type: img.type })));
+  } else addPastedImageFiles(images);
 }, true);
 
 async function pasteImageFromClipboardButton(){
